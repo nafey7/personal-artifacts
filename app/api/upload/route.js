@@ -1,16 +1,20 @@
-import { randomBytes } from "crypto";
-import { artifacts } from "@/lib/mongo";
+import { artifacts, projects, toObjectId } from "@/lib/mongo";
+import { slugify } from "@/lib/slug";
 
 export const dynamic = "force-dynamic";
 
-function slugify(title) {
-  const base = String(title)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-  const suffix = randomBytes(3).toString("hex");
-  return `${base || "artifact"}-${suffix}`;
+// Accepts a project id, slug or exact name so the CLI can pass whichever the
+// caller has to hand. Returns undefined when nothing matches.
+async function resolveProject(value) {
+  const key = String(value).trim();
+  if (!key) return undefined;
+
+  const col = await projects();
+  const _id = toObjectId(key);
+  const doc = await col.findOne(
+    _id ? { $or: [{ _id }, { slug: key }, { name: key }] } : { $or: [{ slug: key }, { name: key }] }
+  );
+  return doc ? doc._id.toString() : undefined;
 }
 
 export async function POST(request) {
@@ -37,9 +41,17 @@ export async function POST(request) {
     return Response.json({ error: "title and html are required" }, { status: 400 });
   }
 
-  const slug = slugify(title);
+  let projectId = null;
+  if (body.project) {
+    projectId = await resolveProject(body.project);
+    if (projectId === undefined) {
+      return Response.json({ error: `unknown project: ${body.project}` }, { status: 400 });
+    }
+  }
+
+  const slug = slugify(title, "artifact");
   const col = await artifacts();
-  await col.insertOne({ slug, title, html, createdAt: new Date() });
+  await col.insertOne({ slug, title, html, projectId, createdAt: new Date() });
 
   const origin = new URL(request.url).origin;
   return Response.json({ slug, url: `${origin}/a/${slug}` }, { status: 201 });

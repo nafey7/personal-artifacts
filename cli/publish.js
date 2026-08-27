@@ -3,9 +3,25 @@ import { readFileSync } from "fs";
 import { homedir } from "os";
 import { join, basename } from "path";
 
-const [file, ...rest] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+
+// Pull --project <name> (or --project=<name>) out before the positional args.
+let project = "";
+const positional = [];
+for (let i = 0; i < argv.length; i++) {
+  const arg = argv[i];
+  if (arg === "--project" || arg === "-p") {
+    project = argv[++i] || "";
+  } else if (arg.startsWith("--project=")) {
+    project = arg.slice("--project=".length);
+  } else {
+    positional.push(arg);
+  }
+}
+
+const [file, ...rest] = positional;
 if (!file) {
-  console.error('usage: publish ./artifact.html "Title"');
+  console.error('usage: publish ./artifact.html "Title" [--project "Folder"]');
   process.exit(1);
 }
 
@@ -28,7 +44,7 @@ const res = await fetch(`${config.site.replace(/\/$/, "")}/api/upload`, {
     "Content-Type": "application/json",
     Authorization: `Bearer ${config.token}`,
   },
-  body: JSON.stringify({ title, html }),
+  body: JSON.stringify(project ? { title, html, project } : { title, html }),
 });
 
 const text = await res.text();
