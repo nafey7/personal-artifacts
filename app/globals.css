@@ -711,3 +711,26 @@ body {
   .tokenlist li { grid-template-columns: minmax(0, 1fr) auto; row-gap: .3rem; }
   .tokenmeta { grid-column: 1 / -1; }
 }
+
+/* ---------- authorize a machine ---------- */
+.devicefacts { border-top: 1px solid var(--rule); }
+.devicefacts div {
+  display: flex; justify-content: space-between; gap: 1rem;
+  padding: .5rem 0; border-bottom: 1px solid var(--rule);
+}
+.devicefacts dt { color: var(--ink-soft); font-size: .86rem; }
+.devicefacts dd {
+  font-family: var(--mono); font-size: .8rem;
+  letter-spacing: .04em;
+}
+.devicedeny {
+  background: none;
+  border: 1px solid var(--rule);
+  color: var(--ink-faint);
+  border-radius: 8px;
+  padding: .45rem .8rem;
+  font-size: .86rem;
+  cursor: pointer;
+}
+.devicedeny:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+.devicedeny:disabled { opacity: .5; cursor: not-allowed; }

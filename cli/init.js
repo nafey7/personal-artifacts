@@ -2,7 +2,8 @@
 import { createInterface } from "readline/promises";
 import { stdin, stdout } from "process";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, accessSync, constants } from "fs";
-import { homedir } from "os";
+import { spawn } from "child_process";
+import { homedir, hostname, userInfo } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -22,10 +23,15 @@ const yes = argv.includes("--yes") || argv.includes("-y");
 if (argv.includes("--help") || argv.includes("-h")) {
   console.log(`personal-artifact — set up artifact publishing for your coding agents.
 
-  personal-artifact                 interactive setup
-  personal-artifact --yes           accept the defaults, no prompts
+  personal-artifact                 sign in through your browser
   personal-artifact --site <url>    the artifact site to publish to
-  personal-artifact --token <tok>   your API token, from <site>/settings
+  personal-artifact --token <tok>   skip the browser; use a token directly
+  personal-artifact --no-browser    print the URL instead of opening it
+  personal-artifact --yes           don't ask before writing files
+
+Signing in opens your browser, where you approve this machine. The token is
+sent straight to this program — you never copy or paste it. On a headless box
+use --token with a token from <site>/settings.
 
 Writes ~/.artifact-publish.json, and installs the publishing skill for the
 coding tools you already have. Tools you have not installed are left alone.
@@ -103,6 +109,76 @@ function plan(tools) {
   return wanted;
 }
 
+/* ---------- signing in through the browser ---------- */
+
+// Best effort: if the browser can't be opened we just print the URL, which is
+// the whole fallback anyone needs.
+function openBrowser(url) {
+  const command =
+    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+  try {
+    const child = spawn(command, [url], { stdio: "ignore", detached: true, shell: process.platform === "win32" });
+    child.on("error", () => {});
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function deviceName() {
+  const host = hostname().replace(/\.local$/, "");
+  try {
+    return `${userInfo().username}@${host}`;
+  } catch {
+    return host;
+  }
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// The device flow: ask the site for a pair of codes, send the person to the
+// browser with the short one, and poll with the long one until they approve.
+async function signInWithBrowser(site, { noBrowser }) {
+  const started = await fetch(`${site}/api/cli/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ device: deviceName() }),
+  });
+  if (!started.ok) {
+    const detail = await started.text();
+    throw new Error(`could not start sign-in (${started.status}): ${detail}`);
+  }
+  const { userCode, deviceCode, verifyUrl, expiresIn, pollInterval } = await started.json();
+
+  const opened = noBrowser ? false : openBrowser(verifyUrl);
+  console.log(opened ? "\nOpening your browser to sign in…" : "\nTo sign in, open this in your browser:");
+  console.log(`  ${verifyUrl}`);
+  console.log(`\n  code: ${userCode}   machine: ${deviceName()}`);
+  process.stdout.write("\nWaiting for you to approve… ");
+
+  const deadline = Date.now() + expiresIn * 1000;
+  while (Date.now() < deadline) {
+    await wait(pollInterval * 1000);
+
+    const res = await fetch(`${site}/api/cli/poll`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceCode }),
+    });
+    if (!res.ok) continue; // a blip shouldn't end the sign-in
+
+    const data = await res.json();
+    if (data.status === "approved") {
+      console.log("done.");
+      return { token: data.token, user: data.user };
+    }
+    if (data.status === "denied") throw new Error("refused in the browser — nothing was written");
+    if (data.status === "expired") break;
+  }
+  throw new Error("timed out waiting for approval — run the command again");
+}
+
 /* ---------- run ---------- */
 
 async function main() {
@@ -113,15 +189,9 @@ async function main() {
     // first run
   }
 
-  // Nothing to prompt with when piped or run from a script.
+  // Signing in through the browser needs no terminal of its own, so the only
+  // thing a pipe can't answer is the confirmation prompt.
   const interactive = stdin.isTTY && !yes;
-  if (!interactive && !yes && (flag("site") === undefined || flag("token") === undefined)) {
-    console.error(
-      "No terminal to prompt on. Pass --site and --token, or run this in a terminal."
-    );
-    process.exitCode = 1;
-    return;
-  }
 
   const rl = interactive ? createInterface({ input: stdin, output: stdout }) : null;
   const ask = async (question, fallback) => {
@@ -138,44 +208,50 @@ async function main() {
       (await ask(`Site [${existing.site || DEFAULT_SITE}]: `, existing.site || DEFAULT_SITE))
     ).replace(/\/$/, "");
 
-    const token =
-      flag("token") ??
-      (await ask(
-        existing.token
-          ? "API token (enter to keep the current one): "
-          : `API token — create one at ${site}/settings: `,
-        existing.token || ""
-      ));
-
-    if (!site || !token) {
-      console.error("\nBoth a site and a token are required.");
+    if (!site) {
+      console.error("\nA site is required.");
       process.exitCode = 1;
       return;
     }
 
-    // Fail here rather than at the user's first publish.
-    process.stdout.write("Checking token… ");
+    let token = flag("token");
     let who;
-    try {
-      const res = await fetch(`${site}/api/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        console.error(
-          res.status === 401
-            ? `rejected.\n\nThat token is not valid for ${site}. Create a new one at ${site}/settings.`
-            : `failed (${res.status}).`
-        );
+
+    if (token) {
+      // Headless path: verify the pasted token rather than trusting it.
+      process.stdout.write("Checking token… ");
+      try {
+        const res = await fetch(`${site}/api/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          console.error(
+            res.status === 401
+              ? `rejected.\n\nThat token is not valid for ${site}. Create a new one at ${site}/settings.`
+              : `failed (${res.status}).`
+          );
+          process.exitCode = 1;
+          return;
+        }
+        who = (await res.json()).user;
+      } catch {
+        console.error(`could not reach ${site}.`);
         process.exitCode = 1;
         return;
       }
-      who = (await res.json()).user;
-    } catch {
-      console.error(`could not reach ${site}.`);
-      process.exitCode = 1;
-      return;
+      console.log(`ok — ${who.name ? `${who.name} <${who.email}>` : who.email}`);
+    } else {
+      try {
+        ({ token, user: who } = await signInWithBrowser(site, {
+          noBrowser: argv.includes("--no-browser"),
+        }));
+      } catch (err) {
+        console.error(`\n${err.message}`);
+        process.exitCode = 1;
+        return;
+      }
+      console.log(`Signed in as ${who.name ? `${who.name} <${who.email}>` : who.email}`);
     }
-    console.log(`ok — ${who.name ? `${who.name} <${who.email}>` : who.email}`);
 
     const tools = detect();
     const found = tools.filter((t) => t.installed);

@@ -17,8 +17,9 @@ npm install -g personal-artifact
 personal-artifact
 ```
 
-Setup asks for the site and an API token, which you create on the site's
-**Settings** page. It checks the token works before writing anything, then:
+That opens your browser. Sign in — or sign up, it works the same — and approve
+the machine. The token travels straight to the CLI, so you never copy or paste
+one. Then it:
 
 - writes `~/.artifact-publish.json` (mode `0600`)
 - installs the publishing skill for the coding tools you actually have
@@ -26,6 +27,14 @@ Setup asks for the site and an API token, which you create on the site's
 It writes nothing for tools you have not installed — no vendor directory is
 created on spec. Run it again any time you install another tool or rotate a
 token.
+
+On a headless machine — a server, a container, CI — there is no browser to
+open, so create a token on the **Settings** page and pass it directly:
+
+```
+personal-artifact --token pa_...        # skip the browser
+personal-artifact --no-browser          # print the URL instead of opening it
+```
 
 ## Publish
 

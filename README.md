@@ -21,6 +21,8 @@ the account model and the phases still to come.
 - `POST /api/upload` — `Authorization: Bearer <your API token>`, body
   `{ title, html, project? }` (`project` takes an id, slug or exact name)
 - `GET /api/me` — the token's owner, used by `personal-artifact` to validate a token
+- `POST /api/cli/start|poll` — browser sign-in for the CLI; `POST /api/cli/approve` (session required)
+- `GET /cli/auth?code=` — the page where a machine is approved
 - `GET|POST /api/tokens`, `DELETE /api/tokens/[id]` — issue, list, revoke (session required)
 - `GET|POST /api/projects` — list / create, body `{ name }` (session required)
 - `PATCH|DELETE /api/projects/[id]` — rename (`{ name }`) / delete with its artifacts (session required)

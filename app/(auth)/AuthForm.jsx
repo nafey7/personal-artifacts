@@ -15,6 +15,9 @@ export default function AuthForm({ mode, next, inviteOnly }) {
 
   const set = (key) => (e) => setFields((f) => ({ ...f, [key]: e.target.value }));
 
+  // Switching between the two forms must not lose where we were headed.
+  const carry = next && next !== "/" ? `?next=${encodeURIComponent(next)}` : "";
+
   async function submit(e) {
     e.preventDefault();
     setPending(true);
@@ -123,9 +126,9 @@ export default function AuthForm({ mode, next, inviteOnly }) {
 
         <p className="authswap">
           {signup ? (
-            <>Already have an account? <Link href="/signin">Sign in</Link></>
+            <>Already have an account? <Link href={`/signin${carry}`}>Sign in</Link></>
           ) : (
-            <>No account yet? <Link href="/signup">Create one</Link></>
+            <>No account yet? <Link href={`/signup${carry}`}>Create one</Link></>
           )}
         </p>
       </form>

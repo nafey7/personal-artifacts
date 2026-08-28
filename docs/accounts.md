@@ -292,10 +292,10 @@ carrying the failures.
 
 `cli/` publishes as **`personal-artifact`** with two binaries:
 
-- `personal-artifact` — setup. Asks for the site and token, validates the token
-  against `GET /api/me` before writing anything, detects which coding tools are
-  installed, prints exactly what it will write, and asks. Re-runnable: run it
-  again after installing another tool or rotating a token.
+- `personal-artifact` — setup. Signs in through the browser (see below),
+  detects which coding tools are installed, prints exactly what it will write,
+  and asks. Re-runnable: run it again after installing another tool or rotating
+  a token.
 - `artifact-publish` — `artifact-publish ./page.html "Title" [--project X]`
   prints the URL. Named in full rather than as a bare `publish`, which is too
   generic a name to claim on someone's `PATH`.
@@ -304,6 +304,31 @@ Detection treats a tool as installed if its home directory exists or its binary
 is on `PATH`. It writes `~/.artifact-publish.json` at mode `0600`, plus the
 skill to at most two directories, and creates no vendor directory for a tool
 that is not there.
+
+## Browser sign-in (built)
+
+Copying a token by hand is the weak point in a setup flow: it puts a live
+credential through a clipboard, a terminal, and shell history. `personal-artifact`
+signs a machine in the way `gh` and `vercel` do, with a device authorization
+flow:
+
+1. `POST /api/cli/start` mints two codes. The **user code** (`HGDF-WVVH`, from
+   an alphabet with no O/0 or I/1/L) only identifies the request; the **device
+   code**, 32 random bytes, is the secret the CLI keeps. Only its hash is
+   stored, and the row expires after ten minutes.
+2. The CLI opens `/cli/auth?code=<user code>`. No session there means a redirect
+   to `/signin?next=…`, and the sign-up form carries `next` too — so a brand new
+   user can create an account mid-flow and land back on the approval screen.
+3. The page names the machine and asks. **Approving is what mints the token**,
+   labelled with the machine name, so an abandoned sign-in leaves nothing behind.
+4. `POST /api/cli/poll` with the device code returns the token exactly once and
+   deletes the row; a replay gets `expired`.
+
+Because the user code cannot fetch a token, watching someone type one in is
+useless without the device code that never left their machine.
+
+`--token` remains for headless boxes where no browser can open, and
+`--no-browser` prints the URL instead of launching one.
 
 ## Known gaps
 
