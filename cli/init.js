@@ -298,15 +298,22 @@ async function main() {
 
     console.log("\npersonal-artifact — publish artifacts from your coding agent.\n");
 
-    const site = (
-      flag("site") ??
-      (await ask(`Site [${existing.site || DEFAULT_SITE}]: `, existing.site || DEFAULT_SITE))
-    ).replace(/\/$/, "");
+    // Nobody has an opinion about this on a first run, so we don't ask: the
+    // flag wins, then whatever the last run saved, then the hosted site. We
+    // still print it, because silently publishing somewhere is worse than one
+    // keypress — and the line is where self-hosters learn the flag exists.
+    const chosen = flag("site") ?? existing.site ?? DEFAULT_SITE;
+    const site = chosen.replace(/\/$/, "");
 
     if (!site) {
-      console.error("\nA site is required.");
+      console.error("A site is required — pass --site <url>.");
       process.exitCode = 1;
       return;
+    }
+
+    console.log(`Site: ${site}`);
+    if (!existing.site && flag("site") === undefined) {
+      console.log("      (self-hosting? re-run with --site <url>)");
     }
 
     let token = flag("token");

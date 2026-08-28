@@ -58,11 +58,13 @@ npm install -g personal-artifact
 personal-artifact
 ```
 
-`personal-artifact` asks for the site and an API token (create one at
-`/settings`), checks the token works, then writes `~/.artifact-publish.json` and
-installs the publishing skill for whichever coding tools you have — Claude Code,
-Codex, Gemini CLI, Cursor. It writes nothing for tools you have not installed,
-and is safe to re-run whenever you install another one or rotate a token.
+`personal-artifact` asks nothing up front — it prints the site it will use and
+opens your browser to sign in. Approve the machine there and the token comes
+back on its own. Then it writes `~/.artifact-publish.json` and installs the
+publishing skill for whichever coding tools you have — Claude Code, Codex,
+Gemini CLI, Cursor. It writes nothing for tools you have not installed, and is
+safe to re-run whenever you install another one or rotate a token. Publishing
+somewhere else takes `--site <url>`.
 
 Publish:
 

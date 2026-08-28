@@ -17,9 +17,9 @@ npm install -g personal-artifact
 personal-artifact
 ```
 
-That opens your browser. Sign in — or sign up, it works the same — and approve
-the machine. The token travels straight to the CLI, so you never copy or paste
-one. Then it:
+That asks nothing. It prints the site it will publish to, then opens your
+browser — sign in, or sign up, it works the same, and approve the machine. The
+token travels straight to the CLI, so you never copy or paste one. Then it:
 
 - writes `~/.artifact-publish.json` (mode `0600`)
 - installs the publishing skill for the coding tools you actually have
@@ -89,7 +89,8 @@ The point is that the page it produces should be one you'd send to a client.
 
 ## Self-hosting
 
-The site is a small Next.js app backed by MongoDB, and runs on free tiers.
-Point `site` in `~/.artifact-publish.json` at your own deployment.
+The site is a small Next.js app backed by MongoDB, and runs on free tiers. Sign
+in against your own deployment with `personal-artifact --site <url>`; it is
+saved, so later runs need the flag only to change it.
 
 Source: https://github.com/nafey7/personal-artifacts
