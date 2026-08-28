@@ -5,6 +5,7 @@ import {
   looksLikeEmail,
   normalizeEmail,
 } from "@/lib/auth";
+import { clientIp, tooManyAttempts } from "@/lib/ratelimit";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,13 @@ export async function POST(request) {
   const gate = process.env.SIGNUP_CODE;
   if (gate && String(body.code || "") !== gate) {
     return Response.json({ error: "invalid invite code" }, { status: 403 });
+  }
+
+  if (await tooManyAttempts(`signup:ip:${clientIp(request)}`, { limit: 5, windowSeconds: 3600 })) {
+    return Response.json(
+      { error: "too many accounts created from here — try again later" },
+      { status: 429 }
+    );
   }
 
   const email = normalizeEmail(body.email);

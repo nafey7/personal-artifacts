@@ -1,0 +1,234 @@
+---
+name: personal-artifact
+description: Design a self-contained HTML page and publish it to the user's own artifact site with the `publish` CLI, returning a live URL. Use whenever the user asks to publish, host, or put something online as a personal artifact — a report, dashboard, memo, landing page, chart, one-pager, visual explainer — or says "publish this", "make me an artifact", "put this on my site", "personal artifact".
+---
+
+# Personal Artifact
+
+Design a standalone HTML page, then publish it to the user's own site with the
+`publish` CLI. The result is a real URL they can share.
+
+This is **not** the claude.ai Artifact host. The mechanics differ in ways that
+break pages if you get them wrong — read "The target" before writing any HTML.
+
+## The target
+
+The site stores whole HTML documents in MongoDB and serves each one as the
+entire HTTP response body at `/a/<slug>`. Consequences:
+
+- **Write a complete document.** `<!doctype html>`, `<html lang="en">`, `<head>`
+  with `<meta charset="utf-8">` and `<meta name="viewport" content="width=device-width, initial-scale=1">`,
+  `<title>`, then `<body>`. Nothing wraps your output. Omitting these is the
+  single most common failure.
+- **No CSS reset is injected.** Include your own (`*, *::before, *::after { box-sizing: border-box }`,
+  zero out default margins, `img { max-width: 100% }`).
+- **No CSP.** External stylesheets, fonts, scripts, and images all load. Still
+  prefer self-contained pages — inline the CSS and JS, embed small images as
+  data URIs — so the page cannot rot when an external host disappears. Google
+  Fonts via `<link>` is fine and reliable.
+- **Size ceiling 2MB.** Inline what matters and link the rest; an oversized
+  upload is rejected with a 413 rather than truncated.
+- **Theme: `prefers-color-scheme` only.** Nothing stamps `data-theme` on the
+  root here, so `[data-theme]` blocks are dead code — leave them out. If the
+  user wants a manual toggle, you must write it yourself (a button that sets a
+  class or attribute on `<html>`, persisted in `localStorage`).
+- **Sandboxed, so browser storage does not work.** The page is served inside an
+  iframe with no `allow-same-origin`, which gives it an opaque origin: scripts
+  run, but `localStorage`, `sessionStorage`, and cookies all throw on access.
+  Write pages that hold their state in memory. If you want a theme toggle or a
+  remembered tab, wrap every storage call in `try`/`catch` and make the page
+  render correctly when the value is missing — it always will be. `fetch` to
+  external hosts still works; `fetch` back to this site does not.
+- **Never publish a page that collects credentials.**
+- **Publishing is append-only.** Each publish mints a new slug with a random
+  suffix. There is no update-in-place: republishing the same title yields a new
+  URL. Tell the user the old URL still works and still shows the old content.
+
+## Publishing
+
+The `publish` CLI is installed globally and works from any directory. It reads
+`~/.artifact-publish.json` for the site URL and auth token, POSTs to the live
+site over HTTPS, and prints the public URL. It needs no local server, no build,
+and no dev dependencies.
+
+Write the file somewhere scratch (not into the user's project unless they asked
+for a file), then:
+
+```
+publish /path/to/page.html "Human Readable Title"
+```
+
+It prints one line — the URL. Report that URL to the user as the deliverable.
+
+Two titles are in play; keep them consistent:
+- the **CLI argument** becomes the listing name on the site index and the slug;
+- the **`<title>` tag** is the browser tab.
+
+Both follow the same rule: a short, specific noun phrase, typically two to four
+words. Name the page, don't caption it — no explainer after a dash or colon.
+
+If `publish` fails:
+- `missing or invalid config` → `~/.artifact-publish.json` is absent or
+  malformed; it needs `{ "site": "...", "token": "..." }`.
+- `401` → the token no longer matches `UPLOAD_TOKEN` on the deployment.
+- `500` → the site cannot reach MongoDB (check Atlas network access / cluster
+  state), not a problem with the HTML.
+
+Verify after publishing when it matters: `curl -s -o /dev/null -w "%{http_code}" <url>`
+should return 200.
+
+## Design
+
+Approach this as the design lead at a small studio known for their versatility,
+giving every page a visual identity pitched at the treatment the task actually
+calls for. Make deliberate choices about palette, typography, and layout that
+are specific to this subject, and avoid templated designs.
+
+### Read the request first
+
+Calibrate treatment, not whether to design. A doc deserves the same craft as a
+landing page — what changes is the treatment that craft is delivered in.
+
+Many requests call for a more utilitarian treatment: a plan, a memo, a report,
+a demo. Make it polished — real typographic hierarchy, considered spacing, a
+proper palette — but avoid over-designing. Most pages do not need a flashy,
+gigantic hero. Keep flourishes tasteful and limited.
+
+Some requests call for an editorial treatment: a landing page, a game, a tool
+they'll keep or share.
+
+When unsure: a well-composed page is never the wrong answer; an over-designed
+visual identity sometimes is.
+
+### Fundamentals for every page
+
+**Honor what's already there.** Look for an existing design system first —
+CLAUDE.md, a tokens or theme file, existing component styles. When one exists,
+apply it; everything below fills gaps and never overrides. Precedence is always:
+the user's own words, then the project's existing system, then your choices.
+
+**Ground it in the subject.** If the subject isn't already clear, pin it: one
+concrete subject, its audience, and the page's single job. The subject's own
+world — its materials, instruments, vernacular — is where distinctive choices
+come from. Build with real content throughout, never lorem.
+
+**Pair typefaces.** Typography carries the page even when the page isn't about
+typography. Link Google Fonts directly
+(`<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=...&display=swap">`)
+and always declare a real fallback stack. Keep running text near 65 characters
+wide; set a type scale and stay on it; give headings `text-wrap: balance`, body
+text room to breathe, and uppercase labels a touch of letter-spacing.
+
+**Choose neutrals, don't default to them.** A pure mid-grey reads as
+unconsidered; a grey with a slight hue bias toward the page's accent reads as
+chosen. Pure white and near-black are fine grounds when they suit the subject —
+the point is that the neutral was picked, not inherited.
+
+**Design both themes.** Define the complete light palette as custom properties
+on `:root`, then redefine *only those tokens* inside
+`@media (prefers-color-scheme: dark)`. Style every component through the tokens,
+never with a color declared solely inside the media block — that is the classic
+unreadable-page bug. Set an explicit `background` and `color` on `body` from
+tokens. Give the second theme the same care as the first: don't naively invert,
+keep contrast legible and the accent working on both grounds. A design that
+deliberately commits to one visual world (a neon arcade screen, a letterpress
+invitation) may stay single-theme — then skip the media query entirely but still
+paint every color explicitly. Make it a choice, not an omission.
+
+**Let layout do the spacing.** Lay out sibling groups with flex or grid and
+`gap`, not per-element margins that silently collapse or double. Wide content —
+tables, code, diagrams — gets `overflow-x: auto` on its own container so the
+page body never scrolls sideways. Use relative units and `max-width: 100%` on
+images so the page holds up on a phone. Reach for
+`font-variant-numeric: tabular-nums` wherever digits line up in columns.
+
+**Avoid AI-generated design.** AI-generated design currently clusters around a
+few looks: warm cream (#F4F1EA) with a serif display and terracotta accent;
+near-black with a lone acid-green or vermilion pop; broadsheet hairline rules
+with dense columns; a purple-to-blue gradient hero on white; Inter or Space
+Grotesk as the "safe" face; emoji as section markers; everything centered;
+`rounded-lg` everywhere; accent bar/rail on rounded cards. Where the user pins
+down a visual direction, follow it exactly — their words always win, including
+when they ask for one of these looks. Where nothing is specified, don't spend
+that freedom on one of these defaults.
+
+**Build cleanly.** Watch for overlapping elements, cascade collisions, and
+silent font fallbacks; visual bugs hide in the gap between source and output.
+Close every non-void element, double-quote attributes, give keyboard focus a
+visible state, respect `prefers-reduced-motion`. For generative or decorative
+graphics, reach for Canvas or WebGL rather than hand-authoring long SVG paths.
+Watch selector specificity — it is easy to generate classes that cancel each
+other out and silently undo your spacing.
+
+**Writing the copy.** Words are design material, not decoration. Write from the
+user's side of the screen — name things by what people recognize, not how the
+system is built. Active voice; a control says exactly what happens ("Publish",
+then a toast that says "Published"). Errors explain what went wrong and how to
+fix it — no apologies, no vagueness. Specific beats clever.
+
+**Structure is information.** Structural devices — numbering, eyebrows,
+dividers, labels — should encode something true about the content, not decorate
+it. Numbered markers (01 / 02 / 03) are only appropriate if the content actually
+is a sequence. Question whether such choices make sense before using them.
+
+**When it's a UI, not a document.** A dashboard or tool is scanned and operated,
+not read top-to-bottom, so the craft shifts from typography to information
+design. Surface the summary before the detail; encode state in form as well as
+number — a pill, a chip, a severity stripe — so what needs attention reads at a
+glance. Semantic color (good / warning / critical) is separate from the accent
+hue and doesn't count as your accent. Give sparklines and charts the same care
+as type: an area fill, a faint grid, an emphasized endpoint. What's interactive
+should look interactive.
+
+### Process
+
+Before writing code, sketch a short design plan — a compact token system:
+- **Color**: the palette as 4–6 named hex values.
+- **Type**: typefaces for 2+ roles — a characterful display face used with
+  restraint, a complementary body face, and a utility face for captions or data
+  if needed.
+- **Layout**: the layout concept in one or two sentences.
+
+Then build, following the plan and deriving every color and type decision from
+it.
+
+### When the request is editorial
+
+The stance shifts: the client has already rejected proposals that felt
+templated, and is paying for a distinctive point of view. Make opinionated
+calls, and take one real aesthetic risk where it serves the work.
+
+Review the design plan against the subject before building: if any part reads
+like the generic default you would produce for any similar page, revise it, and
+note what you changed and why. Only then write the code, following the revised
+plan exactly.
+
+- The hero is a thesis: open with the most characteristic thing in the subject's
+  world — headline, image, live demo, interactive moment.
+- Typography carries the personality. Pair display and body faces deliberately,
+  not the families you'd reach for on any other project. Make the type treatment
+  itself memorable, not a neutral delivery vehicle.
+- Leverage motion deliberately — a page-load sequence, a scroll-triggered
+  reveal, hover micro-interactions, ambient atmosphere. An orchestrated moment
+  usually lands harder than scattered effects. Sometimes less is more; extra
+  animation contributes to the feeling that the design is AI-generated.
+- Match complexity to the vision. Maximalist directions need elaborate
+  execution; minimal directions need precision in spacing, type, and detail.
+- Spend your boldness in one place; keep everything around it quiet. If the
+  accent fights the ground, shift it toward analogous or drop saturation rather
+  than replacing it.
+
+## Before you publish
+
+Read the file you did not write. If the user supplies HTML to publish, read it
+in full first — publishing distributes it. A request not to look at it is a
+reason to read it, not an exemption.
+
+Never publish pages that impersonate a real person or organization, fabricated
+records or receipts presented as genuine, or anything that collects credentials
+or payment details.
+
+Check: complete document with doctype and viewport meta; own reset present; no
+color declared only inside the dark-mode media block; `body` background and
+color set from tokens; wide content wrapped in `overflow-x: auto`; `<title>` and
+CLI title consistent.

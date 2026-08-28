@@ -14,11 +14,14 @@ the account model and the phases still to come.
 - `GET /` — dashboard, all artifacts newest first
 - `GET /unfiled` — artifacts that belong to no project
 - `GET /p/[slug]` — one project's artifacts
-- `GET /a/[slug]` — the stored HTML, served as the whole response. Private by
+- `GET /a/[slug]` — the artifact, rendered inside a sandboxed iframe. Private by
   default: only the owner's session gets it, unless the artifact is toggled to
   Shared in the dashboard.
-- `POST /api/upload` — `Authorization: Bearer <UPLOAD_TOKEN>`, body
+- `GET /settings` — API tokens
+- `POST /api/upload` — `Authorization: Bearer <your API token>`, body
   `{ title, html, project? }` (`project` takes an id, slug or exact name)
+- `GET /api/me` — the token's owner, used by `personal-artifact` to validate a token
+- `GET|POST /api/tokens`, `DELETE /api/tokens/[id]` — issue, list, revoke (session required)
 - `GET|POST /api/projects` — list / create, body `{ name }` (session required)
 - `PATCH|DELETE /api/projects/[id]` — rename (`{ name }`) / delete with its artifacts (session required)
 - `PATCH|DELETE /api/artifacts/[id]` — edit (`{ title?, projectId?, visibility? }`) / delete (session required)
@@ -50,13 +53,14 @@ node scripts/claim-existing.mjs you@example.com
 
 ```
 cd cli && npm link
+personal-artifact
 ```
 
-Then create `~/.artifact-publish.json`:
-
-```json
-{ "site": "https://your-app.vercel.app", "token": "same value as UPLOAD_TOKEN" }
-```
+`personal-artifact` asks for the site and an API token (create one at
+`/settings`), checks the token works, then writes `~/.artifact-publish.json` and
+installs the publishing skill for whichever coding tools you have — Claude Code,
+Codex, Gemini CLI, Cursor. It writes nothing for tools you have not installed,
+and is safe to re-run whenever you install another one or rotate a token.
 
 Publish:
 
@@ -65,17 +69,19 @@ publish ./artifact.html "Load test report"
 publish ./artifact.html "Load test report" --project "Client Work"
 ```
 
-It prints the public URL. `--project` must name a project that already exists.
+It prints the URL. `--project` must name a project that already exists.
+
+Artifacts are capped at 2MB (`MAX_ARTIFACT_BYTES`) and 200 per account
+(`MAX_ARTIFACTS_PER_USER`).
 
 ## Security note
 
-Do not open signup on a shared deployment yet. One thing is still missing:
+Artifacts render inside an iframe with no `allow-same-origin`, so a published
+page cannot read this site's cookies, call its API with a viewer's session, or
+reach another artifact's storage. The cost is that browser storage does not work
+inside an artifact at all — `localStorage` throws on an opaque origin.
 
-**An artifact page runs its own JavaScript on this origin.** It cannot read
-the `httpOnly` session cookie, but it can call the dashboard API with the
-viewer's cookie attached. Harmless while you are the only uploader; with other
-uploaders, serve `/a/[slug]` from a separate domain or a sandboxed iframe first.
-Phase 4 in [docs/accounts.md](docs/accounts.md).
-
-Until that lands, keep `SIGNUP_CODE` set (or the deployment behind Vercel
-password protection) and treat it as single-tenant.
+Two things remain before signup should be opened to strangers: email
+verification and password reset (both need a mail provider), and deleting the
+ownerless `UPLOAD_TOKEN` fallback. Until then keep `SIGNUP_CODE` set. See
+[docs/accounts.md](docs/accounts.md).

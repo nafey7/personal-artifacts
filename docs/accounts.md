@@ -1,8 +1,9 @@
 # personal-artifact — accounts & private artifacts
 
-Status of this document: **phases 1–2 are implemented, and phase 4's access
-control with them.** Phase 3 (per-user API tokens) and phase 4's isolation work
-are the agreed direction, not yet built.
+Status of this document: **phases 1–4 are implemented, along with the
+guardrails and the `personal-artifact` package.** What remains before signup can
+be opened to strangers is email verification and password reset, which need a
+mail provider.
 
 ## The vision
 
@@ -107,20 +108,13 @@ Two consequences:
 
 ### Build order
 
-1. **Per-user API tokens** (phase 3 below). Onboarding step 3 is "paste your
-   token", and that cannot be the deployment-wide `UPLOAD_TOKEN`. Nothing else
-   ships first.
-2. **Sandbox the artifact renderer** (phase 4 below). The last thing standing
-   between this build and handing the signup link to someone else.
-3. **Guardrails.** Per-artifact size cap, per-account quota, rate limiting on
-   signin and signup. Free does not mean unlimited — it means limits that exist
-   so the service survives. Atlas M0 is 512MB in total and the current ceiling
-   on a single artifact is 16MB, so one embedded video is 3% of the cluster.
-   Quota fields are free to add now and annoying to migrate onto live accounts
-   later.
-4. **The npm package.** `init` with tool detection and the two skill writes above.
-5. **Open the doors.** Drop `SIGNUP_CODE`, add email verification and password
-   reset — the one item on this list that needs a mail provider.
+1. ~~Per-user API tokens~~ — built, phase 3 below.
+2. ~~Sandbox the artifact renderer~~ — built, phase 4 below.
+3. ~~Guardrails~~ — built, see Guardrails.
+4. ~~The npm package~~ — built, see The package.
+5. **Open the doors.** Drop `SIGNUP_CODE`, delete the `UPLOAD_TOKEN` fallback,
+   and add email verification and password reset. The only remaining item, and
+   the only one that needs an account somewhere else: a mail provider.
 
 ### Abuse surface
 
@@ -215,16 +209,27 @@ prints the counts first so `--dry-run` tells you what it would touch.
 **Indexes.** `artifacts { userId, createdAt }`, `projects { userId, name }`, and
 unique indexes on both slug fields, created alongside the auth indexes.
 
-## Phase 3 — per-user API tokens (not built — next)
+## Phase 3 — per-user API tokens (built)
 
-`UPLOAD_TOKEN` is a single shared secret today. It becomes a `tokens` collection
-of `{ tokenHash, userId, label, createdAt, lastUsedAt }`, issued and revoked from
-a settings page, shown once at creation. `/api/upload` looks the presented token
-up, resolves the user, and attributes the artifact to them. The CLI config
-(`~/.artifact-publish.json`) then holds the user's own token rather than the
-deployment's.
+A `tokens` collection of `{ tokenHash, prefix, label, userId, createdAt,
+lastUsedAt }`. Tokens look like `pa_<48 hex>`, are shown exactly once at
+creation, and are stored only as a SHA-256 hash — a database dump cannot be used
+to publish. The `prefix` is kept in the clear purely so the owner can tell their
+tokens apart in the list.
 
-## Phase 4 — private artifact pages (access built, isolation not)
+`/api/upload` resolves the presented bearer token to its owner and stamps the
+artifact with that `userId`, recording `lastUsedAt` so an unused token is
+obvious. `/settings` issues and revokes them, capped at ten per account, and
+shows the exact `~/.artifact-publish.json` to write. `GET /api/me` answers with
+the token's owner, which is how `init` validates a paste before writing it to
+disk.
+
+`UPLOAD_TOKEN` still works as a fallback for configs that predate this, mapped
+to `UPLOAD_USER_EMAIL` or the oldest account. **Delete it before signup
+opens** — it is a shared secret with no owner, and the only reason it survives
+is to keep an existing install publishing.
+
+## Phase 4 — private artifact pages (built)
 
 1. **Access — built.** Artifacts carry `visibility: "private" | "public"`,
    private by default, and anything without the field counts as private. A
@@ -233,7 +238,7 @@ deployment's.
    artifacts exist. Private responses are `Cache-Control: private, no-store`.
    Each dashboard row has a Private/Shared toggle that flips the flag through
    `PATCH /api/artifacts/[id]`, for the cases where sharing a link is the point.
-2. **Isolation — this one blocks a multi-user launch.** An artifact's own
+2. **Isolation — built.** An artifact's own
    JavaScript runs on the app's origin. It cannot read the `httpOnly` session
    cookie, but it *can* call `/api/projects` and `/api/artifacts/[id]` with the
    viewer's cookie attached and delete their work. With one trusted uploader
@@ -241,20 +246,72 @@ deployment's.
    another user's browser. Sharing an artifact publicly widens this to anyone
    who opens the link while signed in.
 
-   The fix needs no second domain. Serve `/a/<slug>` as a small shell page that
-   embeds the stored HTML in `<iframe sandbox="allow-scripts" srcdoc="...">`.
-   Without `allow-same-origin` the artifact gets an opaque origin: it cannot
-   read cookies, cannot call the API with a viewer's session, and cannot reach
-   another artifact's `localStorage`. Inlining through `srcdoc` also means there
-   is no raw endpoint left to link around the shell. Same domain, no new
+   `/a/<slug>` is now a small shell page that embeds the stored HTML in an
+   iframe with `sandbox="allow-scripts allow-forms allow-popups allow-modals
+   allow-popups-to-escape-sandbox"` — notably **without** `allow-same-origin`,
+   which is the whole point. The artifact runs on an opaque origin: it cannot
+   read this site's cookies, call its API with a viewer's session, or reach
+   another artifact's storage. Inlining through `srcdoc` means no raw endpoint
+   survives for anyone to link around the shell. Same domain, no new
    infrastructure.
+
+   **The cost:** an opaque origin has no storage. `localStorage`,
+   `sessionStorage` and cookies all throw inside an artifact now. Pages must
+   hold state in memory, and anything that persists — a theme toggle, a
+   remembered tab — has to be wrapped in `try`/`catch` and render correctly
+   without the stored value. The skill shipped in the package says so; the
+   guidance it replaced (namespace your storage keys) was written for the old
+   unsandboxed target and is now wrong.
+
+   Artifact responses also carry `X-Robots-Tag: noindex, nofollow`, so nothing
+   published here is indexed under the domain.
+
+## Guardrails (built)
+
+Free does not mean unlimited; it means limits that keep the service alive.
+
+| Limit | Default | Env var |
+| --- | --- | --- |
+| Bytes per artifact | 2,000,000 | `MAX_ARTIFACT_BYTES` |
+| Artifacts per account | 200 | `MAX_ARTIFACTS_PER_USER` |
+| API tokens per account | 10 | — |
+| Sign-in attempts | 10 per email, 30 per IP, per 15 min | — |
+| Sign-ups | 5 per IP per hour | — |
+
+Atlas M0 holds 512MB in total, so a 2MB ceiling is already generous — the
+MongoDB document limit of 16MB was never a sensible cap for a service someone
+else can write to. Oversize uploads get a 413 that says what to do about it.
+
+Attempt counters live in an `attempts` collection with a TTL index rather than
+in memory, because each request may land on a different serverless instance and
+an in-memory limiter would reset on every cold start. A correct sign-in clears
+its own counter, so someone who mistypes twice and then succeeds is not left
+carrying the failures.
+
+## The package (built)
+
+`cli/` publishes as **`personal-artifact`** with two binaries:
+
+- `personal-artifact` — setup. Asks for the site and token, validates the token
+  against `GET /api/me` before writing anything, detects which coding tools are
+  installed, prints exactly what it will write, and asks. Re-runnable: run it
+  again after installing another tool or rotating a token.
+- `publish` — unchanged in shape; `publish ./page.html "Title" [--project X]`
+  prints the URL.
+
+Detection treats a tool as installed if its home directory exists or its binary
+is on `PATH`. It writes `~/.artifact-publish.json` at mode `0600`, plus the
+skill to at most two directories, and creates no vendor directory for a tool
+that is not there.
 
 ## Known gaps
 
-- No rate limiting on `/api/auth/signin`; add attempt throttling per email and
-  per IP before the deployment is public.
 - No password reset, no email verification, no session list / "sign out
-  everywhere".
-- Sessions are not rotated on sign in, and there is no CSRF token — `sameSite=lax`
-  plus JSON-only endpoints covers the ordinary cross-site case but not the
-  same-origin artifact problem described in phase 4.
+  everywhere". All three need a mail provider.
+- `UPLOAD_TOKEN` still works and has no owner. Delete it before signup opens.
+- Sessions are not rotated on sign in. There is no CSRF token; `sameSite=lax`
+  plus JSON-only endpoints covers the ordinary cross-site case, and the artifact
+  vector it did not cover is now closed by the sandbox.
+- Untested: whether Cursor shows the skill twice when both `~/.agents/skills`
+  and `~/.claude/skills` contain it.
+- The package is not published to npm yet.

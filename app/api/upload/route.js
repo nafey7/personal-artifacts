@@ -1,18 +1,29 @@
 import { artifacts, projects, users, toObjectId } from "@/lib/mongo";
 import { normalizeEmail } from "@/lib/auth";
+import { ownerOfToken } from "@/lib/tokens";
 import { slugify } from "@/lib/slug";
 
 export const dynamic = "force-dynamic";
 
-// UPLOAD_TOKEN is still one shared secret, so it has to be told whose account to
-// publish into: UPLOAD_USER_EMAIL if set, otherwise the oldest account (the
-// single-user case). Per-user tokens replace this whole function in phase 3 —
-// see docs/accounts.md.
-async function uploadOwner() {
+// A page has to fit in a MongoDB document (16MB) but should be nowhere near it.
+// A generous HTML page with inlined CSS and fonts is a few hundred KB; the cap
+// exists so one embedded video can't take a meaningful slice of the cluster.
+const MAX_BYTES = Number(process.env.MAX_ARTIFACT_BYTES || 2_000_000);
+const MAX_PER_USER = Number(process.env.MAX_ARTIFACTS_PER_USER || 200);
+
+// Deprecated: one shared secret for the whole deployment, kept so existing CLI
+// configs keep working. It publishes into UPLOAD_USER_EMAIL's account, or the
+// oldest account. Remove it before signup opens — see docs/accounts.md.
+async function legacyOwner(presented) {
+  const secret = process.env.UPLOAD_TOKEN;
+  if (!secret || presented !== secret) return null;
+
   const col = await users();
   const email = normalizeEmail(process.env.UPLOAD_USER_EMAIL);
-  if (email) return col.findOne({ email });
-  return col.find({}).sort({ createdAt: 1 }).limit(1).next();
+  const doc = email
+    ? await col.findOne({ email })
+    : await col.find({}).sort({ createdAt: 1 }).limit(1).next();
+  return doc ? doc._id.toString() : null;
 }
 
 // Accepts a project id, slug or exact name so the CLI can pass whichever the
@@ -32,24 +43,16 @@ async function resolveProject(value, userId) {
 }
 
 export async function POST(request) {
-  const secret = process.env.UPLOAD_TOKEN;
-  if (!secret) {
-    return Response.json({ error: "UPLOAD_TOKEN not configured" }, { status: 500 });
-  }
-
   const auth = request.headers.get("authorization") || "";
-  if (auth !== `Bearer ${secret}`) {
+  const presented = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!presented) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const owner = await uploadOwner();
-  if (!owner) {
-    return Response.json(
-      { error: "no account to publish into — sign up first, or set UPLOAD_USER_EMAIL" },
-      { status: 500 }
-    );
+  const userId = (await ownerOfToken(presented)) || (await legacyOwner(presented));
+  if (!userId) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
   }
-  const userId = owner._id.toString();
 
   let body;
   try {
@@ -64,6 +67,26 @@ export async function POST(request) {
     return Response.json({ error: "title and html are required" }, { status: 400 });
   }
 
+  const bytes = Buffer.byteLength(html, "utf8");
+  if (bytes > MAX_BYTES) {
+    return Response.json(
+      {
+        error: `artifact is ${Math.round(bytes / 1000)}KB, over the ${Math.round(
+          MAX_BYTES / 1000
+        )}KB limit — embed less, or link large media instead of inlining it`,
+      },
+      { status: 413 }
+    );
+  }
+
+  const col = await artifacts();
+  if ((await col.countDocuments({ userId })) >= MAX_PER_USER) {
+    return Response.json(
+      { error: `you have reached the limit of ${MAX_PER_USER} artifacts — delete some first` },
+      { status: 409 }
+    );
+  }
+
   let projectId = null;
   if (body.project) {
     projectId = await resolveProject(body.project, userId);
@@ -73,7 +96,6 @@ export async function POST(request) {
   }
 
   const slug = slugify(title, "artifact");
-  const col = await artifacts();
   await col.insertOne({
     slug,
     title,
@@ -82,6 +104,7 @@ export async function POST(request) {
     userId,
     // Private unless the owner shares it from the dashboard.
     visibility: "private",
+    bytes,
     createdAt: new Date(),
   });
 

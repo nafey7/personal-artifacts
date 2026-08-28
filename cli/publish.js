@@ -31,7 +31,7 @@ try {
   config = JSON.parse(readFileSync(configPath, "utf8"));
 } catch {
   console.error(`missing or invalid config: ${configPath}`);
-  console.error('expected: { "site": "https://example.vercel.app", "token": "..." }');
+  console.error("run `personal-artifact` to set it up");
   process.exit(1);
 }
 
@@ -49,7 +49,16 @@ const res = await fetch(`${config.site.replace(/\/$/, "")}/api/upload`, {
 
 const text = await res.text();
 if (!res.ok) {
-  console.error(`upload failed (${res.status}): ${text}`);
+  let detail = text;
+  try {
+    detail = JSON.parse(text).error || text;
+  } catch {
+    // not JSON — show what came back
+  }
+  console.error(`publish failed (${res.status}): ${detail}`);
+  if (res.status === 401) {
+    console.error("the token is not valid for this site — run `personal-artifact` again");
+  }
   process.exit(1);
 }
 console.log(JSON.parse(text).url);
