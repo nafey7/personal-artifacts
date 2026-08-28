@@ -1,4 +1,4 @@
-# Accounts & private artifacts
+# personal-artifact — accounts & private artifacts
 
 Status of this document: **phases 1–2 are implemented, and phase 4's access
 control with them.** Phase 3 (per-user API tokens) and phase 4's isolation work
@@ -6,26 +6,86 @@ are the agreed direction, not yet built.
 
 ## The vision
 
-Today this app is a single-tenant archive: one Mongo database, one upload token,
-one implicit owner. The direction is a small multi-tenant tool that developers —
-teammates first, then anyone — can run against a shared deployment:
+**personal-artifact** is a hosted service plus an installable package. A
+developer runs one command, signs up, pastes a token once, and from then on any
+coding agent they use can design a real HTML page and publish it to a private
+URL they own.
 
-1. Someone installs the `publish` CLI package.
-2. They sign up on the site and generate a personal API token.
-3. They paste that token into the CLI config once.
-4. From then on they have the same "publish a personal artifact" agent skill the
-   author has locally, and everything they publish is **private to their
-   account**.
+The onboarding is four steps, one of which is a copy-paste:
 
-The point of the product is privacy. Artifacts are working documents — reports,
-dashboards, client one-pagers — and a developer publishing one should not be
-handing it to a shared pool or to a vendor's cloud. The tool is deliberately
-self-hostable: your deployment, your Mongo, your data.
+1. Install the `personal-artifact` package.
+2. Sign up on the site and generate a personal API token.
+3. Paste the token into the package's `init` prompt.
+4. Their agent now has the publishing skill, and everything published is
+   **private to their account**.
 
-The CLI and the skill are meant to be **agent-agnostic**. Publishing is a plain
-`POST` of `{ title, html, project? }` with a bearer token, so the same skill
-definition works from Claude Code, Gemini CLI, or OpenAI Codex. Nothing in the
-protocol is specific to one assistant, and that should stay true.
+### What the product actually is
+
+The skill is the product; this app is the storage layer underneath it. The skill
+file is roughly 12KB, and only a fifth of it is publishing mechanics — the rest
+is design judgment: pair typefaces deliberately, define both themes through
+tokens, calibrate treatment to the request, avoid the look that AI-generated
+pages have converged on. Anyone can write a `POST /api/upload`. What makes the
+output worth hosting is that the page is one a developer would send to a client.
+
+The pitch is **private by default**. Artifacts are working documents — reports,
+dashboards, client one-pagers. A developer publishing one should not be handing
+it to a shared pool or to a vendor's cloud. What "private" means here is a
+promise backed by engineering rather than by topology: the service is hosted,
+and only the owner can read what they publish unless they choose to share a link.
+
+### Settled decisions
+
+| Question | Decision |
+| --- | --- |
+| Name | `personal-artifact` — package, skill, and service agree |
+| Hosting | Hosted SaaS, run by the author. Not self-hosted per developer |
+| URL | `personal-artifacts-three.vercel.app` for now; a real domain when it opens past the team |
+| Distribution | npm package with an `init` command, not an MCP server |
+| Install scope | Global where a tool supports it, per-repo where it does not |
+| Sharing | Private by default plus opt-in public links. No teams, roles, or workspaces |
+| Money | Free and open source for now. No billing, but limits that keep the service alive |
+
+### Agent-agnostic by construction
+
+Publishing is a plain `POST` of `{ title, html, project? }` with a bearer token.
+Nothing in the protocol belongs to one assistant, and that must stay true. The
+design guidance lives in **one source file**; `init` detects which tools are
+installed and writes a thin per-tool wrapper around it:
+
+| Tool | Destination | Scope |
+| --- | --- | --- |
+| Claude Code | `~/.claude/skills/personal-artifact/SKILL.md` | global |
+| OpenAI Codex | `AGENTS.md` | per-repo |
+| Gemini CLI | `GEMINI.md` | global (`~/.gemini/`) with per-repo fallback |
+| Cursor | `.cursor/rules/personal-artifact.mdc` | per-repo |
+
+Adding a tool means adding a wrapper, never a second copy of the guidance.
+
+### Build order
+
+1. **Per-user API tokens** (phase 3 below). Onboarding step 3 is "paste your
+   token", and that cannot be the deployment-wide `UPLOAD_TOKEN`. Nothing else
+   ships first.
+2. **Sandbox the artifact renderer** (phase 4 below). The last thing standing
+   between this build and handing the signup link to someone else.
+3. **Guardrails.** Per-artifact size cap, per-account quota, rate limiting on
+   signin and signup. Free does not mean unlimited — it means limits that exist
+   so the service survives. Atlas M0 is 512MB in total and the current ceiling
+   on a single artifact is 16MB, so one embedded video is 3% of the cluster.
+   Quota fields are free to add now and annoying to migrate onto live accounts
+   later.
+4. **The npm package.** `init` with tool detection and the wrappers above.
+5. **Open the doors.** Drop `SIGNUP_CODE`, add email verification and password
+   reset — the one item on this list that needs a mail provider.
+
+### Abuse surface
+
+Sandboxing stops artifacts from attacking each other; it does not stop someone
+publishing a convincing fake login page and sharing that link from this domain.
+Share links are opt-in, which bounds it, but artifact responses should carry
+`X-Robots-Tag: noindex` so nothing published here is indexed under the domain,
+and there has to be a way to kill a slug.
 
 ## Phase 1 — sign up and sign in (built)
 
@@ -112,7 +172,7 @@ prints the counts first so `--dry-run` tells you what it would touch.
 **Indexes.** `artifacts { userId, createdAt }`, `projects { userId, name }`, and
 unique indexes on both slug fields, created alongside the auth indexes.
 
-## Phase 3 — per-user API tokens (not built)
+## Phase 3 — per-user API tokens (not built — next)
 
 `UPLOAD_TOKEN` is a single shared secret today. It becomes a `tokens` collection
 of `{ tokenHash, userId, label, createdAt, lastUsedAt }`, issued and revoked from
@@ -136,9 +196,15 @@ deployment's.
    viewer's cookie attached and delete their work. With one trusted uploader
    that was theoretical; with open signup, one user's artifact can act as
    another user's browser. Sharing an artifact publicly widens this to anyone
-   who opens the link while signed in. Fix before opening signup — serve
-   artifact HTML from a separate origin, or render it inside a sandboxed iframe
-   without `allow-same-origin`.
+   who opens the link while signed in.
+
+   The fix needs no second domain. Serve `/a/<slug>` as a small shell page that
+   embeds the stored HTML in `<iframe sandbox="allow-scripts" srcdoc="...">`.
+   Without `allow-same-origin` the artifact gets an opaque origin: it cannot
+   read cookies, cannot call the API with a viewer's session, and cannot reach
+   another artifact's `localStorage`. Inlining through `srcdoc` also means there
+   is no raw endpoint left to link around the shell. Same domain, no new
+   infrastructure.
 
 ## Known gaps
 
