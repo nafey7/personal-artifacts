@@ -1,8 +1,12 @@
 import { artifacts, projects, toObjectId } from "@/lib/mongo";
+import { requireUser } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(request, { params }) {
+  const { user, response } = await requireUser();
+  if (response) return response;
+
   const { id } = await params;
   const _id = toObjectId(id);
   if (!_id) return Response.json({ error: "not found" }, { status: 404 });
@@ -21,14 +25,15 @@ export async function PATCH(request, { params }) {
   }
 
   const col = await projects();
-  const clash = await col.findOne({ name, _id: { $ne: _id } });
+  const clash = await col.findOne({ name, userId: user.id, _id: { $ne: _id } });
   if (clash) {
     return Response.json({ error: "a project with that name already exists" }, { status: 409 });
   }
 
-  // The slug stays as minted so existing /p/<slug> links keep resolving.
+  // The slug stays as minted so existing /p/<slug> links keep resolving. The
+  // userId in the filter makes another account's id a 404, not an edit.
   const result = await col.findOneAndUpdate(
-    { _id },
+    { _id, userId: user.id },
     { $set: { name, updatedAt: new Date() } },
     { returnDocument: "after" }
   );
@@ -40,19 +45,25 @@ export async function PATCH(request, { params }) {
 }
 
 export async function DELETE(_request, { params }) {
+  const { user, response } = await requireUser();
+  if (response) return response;
+
   const { id } = await params;
   const _id = toObjectId(id);
   if (!_id) return Response.json({ error: "not found" }, { status: 404 });
 
   const col = await projects();
-  const project = await col.findOne({ _id });
+  const project = await col.findOne({ _id, userId: user.id });
   if (!project) return Response.json({ error: "not found" }, { status: 404 });
 
   // Deleting a project takes its artifacts with it. Remove the artifacts first
   // so a failure part-way through can't orphan them behind a missing project.
   const art = await artifacts();
-  const { deletedCount } = await art.deleteMany({ projectId: _id.toString() });
-  await col.deleteOne({ _id });
+  const { deletedCount } = await art.deleteMany({
+    projectId: _id.toString(),
+    userId: user.id,
+  });
+  await col.deleteOne({ _id, userId: user.id });
 
   return Response.json({ deleted: { project: project.name, artifacts: deletedCount } });
 }

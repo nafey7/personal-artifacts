@@ -1,8 +1,12 @@
 import { artifacts, projects, toObjectId } from "@/lib/mongo";
+import { requireUser } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(request, { params }) {
+  const { user, response } = await requireUser();
+  if (response) return response;
+
   const { id } = await params;
   const _id = toObjectId(id);
   if (!_id) return Response.json({ error: "not found" }, { status: 404 });
@@ -29,10 +33,19 @@ export async function PATCH(request, { params }) {
     } else {
       const projectId = toObjectId(raw);
       if (!projectId) return Response.json({ error: "unknown project" }, { status: 400 });
-      const project = await (await projects()).findOne({ _id: projectId });
+      // Only the caller's own projects are valid destinations.
+      const project = await (await projects()).findOne({ _id: projectId, userId: user.id });
       if (!project) return Response.json({ error: "unknown project" }, { status: 400 });
       set.projectId = projectId.toString();
     }
+  }
+
+  if ("visibility" in body) {
+    const visibility = body.visibility;
+    if (visibility !== "private" && visibility !== "public") {
+      return Response.json({ error: "visibility must be private or public" }, { status: 400 });
+    }
+    set.visibility = visibility;
   }
 
   if (Object.keys(set).length === 0) {
@@ -41,7 +54,7 @@ export async function PATCH(request, { params }) {
 
   const col = await artifacts();
   const result = await col.findOneAndUpdate(
-    { _id },
+    { _id, userId: user.id },
     { $set: { ...set, updatedAt: new Date() } },
     { returnDocument: "after", projection: { html: 0 } }
   );
@@ -53,17 +66,21 @@ export async function PATCH(request, { params }) {
       slug: result.slug,
       title: result.title,
       projectId: result.projectId ?? null,
+      isPublic: result.visibility === "public",
     },
   });
 }
 
 export async function DELETE(_request, { params }) {
+  const { user, response } = await requireUser();
+  if (response) return response;
+
   const { id } = await params;
   const _id = toObjectId(id);
   if (!_id) return Response.json({ error: "not found" }, { status: 404 });
 
   const col = await artifacts();
-  const { deletedCount } = await col.deleteOne({ _id });
+  const { deletedCount } = await col.deleteOne({ _id, userId: user.id });
   if (!deletedCount) return Response.json({ error: "not found" }, { status: 404 });
 
   return Response.json({ deleted: true });

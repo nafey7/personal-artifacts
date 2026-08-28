@@ -1,19 +1,33 @@
-import { artifacts, projects, toObjectId } from "@/lib/mongo";
+import { artifacts, projects, users, toObjectId } from "@/lib/mongo";
+import { normalizeEmail } from "@/lib/auth";
 import { slugify } from "@/lib/slug";
 
 export const dynamic = "force-dynamic";
 
+// UPLOAD_TOKEN is still one shared secret, so it has to be told whose account to
+// publish into: UPLOAD_USER_EMAIL if set, otherwise the oldest account (the
+// single-user case). Per-user tokens replace this whole function in phase 3 —
+// see docs/accounts.md.
+async function uploadOwner() {
+  const col = await users();
+  const email = normalizeEmail(process.env.UPLOAD_USER_EMAIL);
+  if (email) return col.findOne({ email });
+  return col.find({}).sort({ createdAt: 1 }).limit(1).next();
+}
+
 // Accepts a project id, slug or exact name so the CLI can pass whichever the
-// caller has to hand. Returns undefined when nothing matches.
-async function resolveProject(value) {
+// caller has to hand. Only the owner's own projects are searched. Returns
+// undefined when nothing matches.
+async function resolveProject(value, userId) {
   const key = String(value).trim();
   if (!key) return undefined;
 
   const col = await projects();
   const _id = toObjectId(key);
-  const doc = await col.findOne(
-    _id ? { $or: [{ _id }, { slug: key }, { name: key }] } : { $or: [{ slug: key }, { name: key }] }
-  );
+  const doc = await col.findOne({
+    userId,
+    $or: _id ? [{ _id }, { slug: key }, { name: key }] : [{ slug: key }, { name: key }],
+  });
   return doc ? doc._id.toString() : undefined;
 }
 
@@ -27,6 +41,15 @@ export async function POST(request) {
   if (auth !== `Bearer ${secret}`) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
+
+  const owner = await uploadOwner();
+  if (!owner) {
+    return Response.json(
+      { error: "no account to publish into — sign up first, or set UPLOAD_USER_EMAIL" },
+      { status: 500 }
+    );
+  }
+  const userId = owner._id.toString();
 
   let body;
   try {
@@ -43,7 +66,7 @@ export async function POST(request) {
 
   let projectId = null;
   if (body.project) {
-    projectId = await resolveProject(body.project);
+    projectId = await resolveProject(body.project, userId);
     if (projectId === undefined) {
       return Response.json({ error: `unknown project: ${body.project}` }, { status: 400 });
     }
@@ -51,7 +74,16 @@ export async function POST(request) {
 
   const slug = slugify(title, "artifact");
   const col = await artifacts();
-  await col.insertOne({ slug, title, html, projectId, createdAt: new Date() });
+  await col.insertOne({
+    slug,
+    title,
+    html,
+    projectId,
+    userId,
+    // Private unless the owner shares it from the dashboard.
+    visibility: "private",
+    createdAt: new Date(),
+  });
 
   const origin = new URL(request.url).origin;
   return Response.json({ slug, url: `${origin}/a/${slug}` }, { status: 201 });

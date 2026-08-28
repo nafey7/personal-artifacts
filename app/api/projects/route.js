@@ -1,11 +1,15 @@
 import { artifacts, projects } from "@/lib/mongo";
+import { requireUser } from "@/lib/guard";
 import { slugify } from "@/lib/slug";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const { user, response } = await requireUser();
+  if (response) return response;
+
   const col = await projects();
-  const docs = await col.find({}).sort({ name: 1 }).toArray();
+  const docs = await col.find({ userId: user.id }).sort({ name: 1 }).toArray();
   return Response.json({
     projects: docs.map((p) => ({
       id: p._id.toString(),
@@ -16,6 +20,9 @@ export async function GET() {
 }
 
 export async function POST(request) {
+  const { user, response } = await requireUser();
+  if (response) return response;
+
   let body;
   try {
     body = await request.json();
@@ -30,18 +37,25 @@ export async function POST(request) {
   }
 
   const col = await projects();
-  const existing = await col.findOne({ name });
+  // Names only have to be unique within one account.
+  const existing = await col.findOne({ name, userId: user.id });
   if (existing) {
     return Response.json({ error: "a project with that name already exists" }, { status: 409 });
   }
 
   const now = new Date();
-  const doc = { name, slug: slugify(name, "project"), createdAt: now, updatedAt: now };
+  const doc = {
+    name,
+    slug: slugify(name, "project"),
+    userId: user.id,
+    createdAt: now,
+    updatedAt: now,
+  };
   const { insertedId } = await col.insertOne(doc);
 
   // Report the count so the freshly created project renders like the rest.
   const art = await artifacts();
-  const count = await art.countDocuments({ projectId: insertedId.toString() });
+  const count = await art.countDocuments({ projectId: insertedId.toString(), userId: user.id });
 
   return Response.json(
     { project: { id: insertedId.toString(), name: doc.name, slug: doc.slug, count } },

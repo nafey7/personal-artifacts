@@ -87,6 +87,25 @@ export default function ArtifactList({ items, projects, showProject = true }) {
 
               <time dateTime={d.iso}>{d.stamp}</time>
 
+              <button
+                type="button"
+                className={`rowshare${d.isPublic ? " is-public" : ""}`}
+                disabled={pending === d.id}
+                onClick={() =>
+                  mutate(d.id, {
+                    method: "PATCH",
+                    body: JSON.stringify({ visibility: d.isPublic ? "private" : "public" }),
+                  })
+                }
+                title={
+                  d.isPublic
+                    ? "Anyone with the link can open this. Click to make it private."
+                    : "Only you can open this. Click to share the link."
+                }
+              >
+                {d.isPublic ? "Shared" : "Private"}
+              </button>
+
               {showProject && (
                 <select
                   className="rowproject"

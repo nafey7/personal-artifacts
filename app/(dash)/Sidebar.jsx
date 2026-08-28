@@ -33,7 +33,7 @@ function Icon({ name }) {
   );
 }
 
-export default function Sidebar({ projects, unfiled, total }) {
+export default function Sidebar({ projects, unfiled, total, user }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -45,6 +45,18 @@ export default function Sidebar({ projects, unfiled, total }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(null); // project pending deletion
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function signOut() {
+    setSigningOut(true);
+    try {
+      await fetch("/api/auth/signout", { method: "POST" });
+      router.replace("/signin");
+      router.refresh();
+    } finally {
+      setSigningOut(false);
+    }
+  }
 
   async function send(url, options) {
     setPending(true);
@@ -243,9 +255,17 @@ export default function Sidebar({ projects, unfiled, total }) {
 
           {error && <p className="naverror" role="alert">{error}</p>}
 
-          <p className="sidefoot">
+          <div className="sidefoot">
             <code>publish page.html</code>
-          </p>
+            {user && (
+              <div className="account">
+                <span className="who" title={user.email}>{user.name || user.email}</span>
+                <button type="button" onClick={signOut} disabled={signingOut}>
+                  {signingOut ? "…" : "Sign out"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
