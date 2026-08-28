@@ -74,6 +74,31 @@ It prints the URL. `--project` must name a project that already exists.
 Artifacts are capped at 2MB (`MAX_ARTIFACT_BYTES`) and 200 per account
 (`MAX_ARTIFACTS_PER_USER`).
 
+## Releasing the CLI
+
+Publishing runs from GitHub Actions over OIDC trusted publishing — no npm token
+lives in this repo, and no 2FA prompt has to be answered.
+
+```
+cd cli
+npm version patch      # or minor / major — this commits and tags
+git push && git push --tags
+```
+
+The tag triggers `.github/workflows/publish.yml`, which refuses to publish if
+the tag and `cli/package.json` disagree.
+
+One-time setup on npmjs.com, under the package's **Settings → Trusted
+Publisher** (all fields are case-sensitive):
+
+| Field | Value |
+| --- | --- |
+| Organization or user | `nafey7` |
+| Repository | `personal-artifacts` |
+| Workflow filename | `publish.yml` |
+| Environment | leave blank |
+| Allowed actions | `npm publish` |
+
 ## Security note
 
 Artifacts render inside an iframe with no `allow-same-origin`, so a published

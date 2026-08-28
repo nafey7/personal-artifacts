@@ -315,4 +315,6 @@ that is not there.
   vector it did not cover is now closed by the sandbox.
 - Untested: whether Cursor shows the skill twice when both `~/.agents/skills`
   and `~/.claude/skills` contain it.
-- The package is MIT licensed and ready to publish; `personal-artifact` was free on npm as of this writing.
+- `personal-artifact@1.0.0` is published. Releases go through OIDC trusted
+  publishing from `.github/workflows/publish.yml`; publishing from a laptop
+  needs a bypass-2FA token, which npm retires in January 2027.
