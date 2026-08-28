@@ -42,25 +42,68 @@ and only the owner can read what they publish unless they choose to share a link
 | Hosting | Hosted SaaS, run by the author. Not self-hosted per developer |
 | URL | `personal-artifacts-three.vercel.app` for now; a real domain when it opens past the team |
 | Distribution | npm package with an `init` command, not an MCP server |
-| Install scope | Global where a tool supports it, per-repo where it does not |
+| Install scope | Global, into paths that already exist. Never create a vendor directory speculatively |
 | Sharing | Private by default plus opt-in public links. No teams, roles, or workspaces |
 | Money | Free and open source for now. No billing, but limits that keep the service alive |
 
 ### Agent-agnostic by construction
 
 Publishing is a plain `POST` of `{ title, html, project? }` with a bearer token.
-Nothing in the protocol belongs to one assistant, and that must stay true. The
-design guidance lives in **one source file**; `init` detects which tools are
-installed and writes a thin per-tool wrapper around it:
+Nothing in the protocol belongs to one assistant, and that must stay true.
 
-| Tool | Destination | Scope |
+Every target tool now ships **Agent Skills** — a directory containing a
+`SKILL.md` whose frontmatter needs only `name` and `description`, loaded on
+demand when a task matches the description. So there is no per-tool wrapper and
+no rules file: the same skill directory works everywhere.
+
+`~/.agents/skills/` has become the vendor-neutral convention, and three of the
+four tools read it:
+
+| Tool | User-level skills path | Reads `~/.agents/skills`? |
 | --- | --- | --- |
-| Claude Code | `~/.claude/skills/personal-artifact/SKILL.md` | global |
-| OpenAI Codex | `AGENTS.md` | per-repo |
-| Gemini CLI | `GEMINI.md` | global (`~/.gemini/`) with per-repo fallback |
-| Cursor | `.cursor/rules/personal-artifact.mdc` | per-repo |
+| Claude Code | `~/.claude/skills/` | not documented |
+| Codex | `$HOME/.agents/skills` | it is Codex's native user path |
+| Gemini CLI | `~/.gemini/skills/`, `~/.agents/skills/` alias | yes |
+| Cursor | `~/.cursor/skills/`, `~/.agents/skills/` | yes — and `~/.claude/skills/`, `~/.codex/skills/` for compatibility |
 
-Adding a tool means adding a wrapper, never a second copy of the guidance.
+`init` therefore performs **two writes at most**:
+
+- `~/.agents/skills/personal-artifact/SKILL.md` — Codex, Gemini CLI, Cursor
+- `~/.claude/skills/personal-artifact/SKILL.md` — Claude Code
+
+The guidance is one source file. The only per-tool variance in 12KB is the
+description's closing sentence — "Not for claude.ai Artifacts (use the Artifact
+tool for those)" — which is meaningful in Claude Code and noise everywhere else,
+so it belongs in that copy alone.
+
+Open question to test before shipping: Cursor reads both `~/.agents/skills/` and
+`~/.claude/skills/`, so on a machine with Claude Code installed it may see
+`personal-artifact` twice. It likely dedupes by precedence; verify rather than
+assume.
+
+### Never create a vendor directory speculatively
+
+`init` writes only into a directory that already exists, or whose tool is
+demonstrably installed — the tool's home directory present, or its binary on
+`PATH`. It never `mkdir -p`s a vendor path on spec.
+
+Creating `~/.claude/` on a machine without Claude Code can interfere with that
+tool's own first-run bootstrap — ownership, permissions, or migration logic that
+assumes it created the directory itself. Short of that it is still wrong: an
+empty vendor directory does nothing except litter a home directory with the
+names of tools its owner chose not to install, and make uninstalling messier.
+
+`~/.agents/skills/` is the single exception worth creating fresh, because it is
+vendor-neutral rather than anyone's private namespace — and then only when at
+least one tool that reads it is actually installed.
+
+Two consequences:
+
+- **`init` prints what it detected and what it will write, then asks.** No
+  silent writes into someone's home directory.
+- **`init` is re-runnable.** Installing Codex next month means running it again
+  to fill in what is newly present. Re-runnability also covers the day the
+  hosted URL changes and every `~/.artifact-publish.json` needs a new `site`.
 
 ### Build order
 
@@ -75,7 +118,7 @@ Adding a tool means adding a wrapper, never a second copy of the guidance.
    on a single artifact is 16MB, so one embedded video is 3% of the cluster.
    Quota fields are free to add now and annoying to migrate onto live accounts
    later.
-4. **The npm package.** `init` with tool detection and the wrappers above.
+4. **The npm package.** `init` with tool detection and the two skill writes above.
 5. **Open the doors.** Drop `SIGNUP_CODE`, add email verification and password
    reset — the one item on this list that needs a mail provider.
 
