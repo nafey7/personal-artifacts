@@ -36,6 +36,20 @@ personal-artifact --token pa_...        # skip the browser
 personal-artifact --no-browser          # print the URL instead of opening it
 ```
 
+## Uninstall
+
+```
+personal-artifact uninstall
+```
+
+One command. It removes the config file and the skill from both destinations,
+prunes `~/.agents` if nothing else is left in it, then uninstalls the npm
+package itself. Add `--keep-package` to remove the files but leave the package
+installed, and `--yes` to skip the confirmation.
+
+It cannot revoke your token — that lives on the site. Revoke it on the
+**Settings** page if you are done for good.
+
 ## Publish
 
 Usually you don't run this yourself; your agent does. But it's a normal CLI:

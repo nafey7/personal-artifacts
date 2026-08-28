@@ -76,6 +76,9 @@ It prints the URL. `--project` must name a project that already exists.
 Artifacts are capped at 2MB (`MAX_ARTIFACT_BYTES`) and 200 per account
 (`MAX_ARTIFACTS_PER_USER`).
 
+Undo all of it — config, skills, and the package — with `personal-artifact
+uninstall`. It leaves the token on the server; revoke that at `/settings`.
+
 ## Releasing the CLI
 
 Publishing runs from GitHub Actions over OIDC trusted publishing — no npm token

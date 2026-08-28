@@ -1,8 +1,17 @@
 #!/usr/bin/env node
 import { createInterface } from "readline/promises";
 import { stdin, stdout } from "process";
-import { readFileSync, writeFileSync, mkdirSync, existsSync, accessSync, constants } from "fs";
-import { spawn } from "child_process";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  rmdirSync,
+  existsSync,
+  accessSync,
+  constants,
+} from "fs";
+import { spawn, spawnSync } from "child_process";
 import { homedir, hostname, userInfo } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -27,7 +36,11 @@ if (argv.includes("--help") || argv.includes("-h")) {
   personal-artifact --site <url>    the artifact site to publish to
   personal-artifact --token <tok>   skip the browser; use a token directly
   personal-artifact --no-browser    print the URL instead of opening it
-  personal-artifact --yes           don't ask before writing files
+  personal-artifact --yes           don't ask before writing (or removing) files
+
+  personal-artifact uninstall       remove every file this program wrote,
+                                    then uninstall the npm package itself
+    --keep-package                  remove the files but leave the package
 
 Signing in opens your browser, where you approve this machine. The token is
 sent straight to this program — you never copy or paste it. On a headless box
@@ -35,7 +48,10 @@ use --token with a token from <site>/settings.
 
 Writes ~/.artifact-publish.json, and installs the publishing skill for the
 coding tools you already have. Tools you have not installed are left alone.
-Safe to run again whenever you install another tool or rotate your token.`);
+Safe to run again whenever you install another tool or rotate your token.
+
+The uninstall command undoes all of that in one go. It cannot revoke your token —
+that lives on the site, so revoke it at <site>/settings.`);
   process.exit(0);
 }
 
@@ -179,6 +195,80 @@ async function signInWithBrowser(site, { noBrowser }) {
   throw new Error("timed out waiting for approval — run the command again");
 }
 
+/* ---------- undoing all of it ---------- */
+
+// Everything install can create, listed in one place so uninstall can never
+// drift from it: the config, plus the skill in both destinations. We remove
+// both destinations regardless of which tools are installed now — a tool the
+// person has since deleted still left its skill behind.
+function installedPaths() {
+  return [
+    CONFIG,
+    join(homedir(), ".claude", "skills", "personal-artifact"),
+    join(homedir(), ".agents", "skills", "personal-artifact"),
+  ];
+}
+
+// Install creates ~/.agents/skills on demand, so uninstall takes it back out —
+// but only while it is empty, since another tool's skills may live there too.
+// rmdir refuses a non-empty directory, which is exactly the check we want.
+function pruneEmpty(dirs) {
+  for (const dir of dirs) {
+    try {
+      rmdirSync(dir);
+    } catch {
+      // not empty, or never there
+    }
+  }
+}
+
+async function uninstall({ ask, site }) {
+  const present = installedPaths().filter((p) => existsSync(p));
+
+  console.log("\npersonal-artifact — uninstall.\n");
+  if (present.length === 0) {
+    console.log("Nothing to remove — none of these are here:");
+    for (const p of installedPaths()) console.log(`  ${p}`);
+  } else {
+    console.log("Will remove:");
+    for (const p of present) console.log(`  ${p}`);
+  }
+
+  const keepPackage = argv.includes("--keep-package");
+  // Removing the package we are running from is safe: Node has already read
+  // this file into memory. Windows can hold a lock on the command shim, so
+  // there we print the command instead of running it.
+  const canSelfRemove = !keepPackage && process.platform !== "win32";
+  if (canSelfRemove) console.log("  the personal-artifact npm package (npm uninstall -g)");
+
+  if (present.length === 0 && !canSelfRemove) return;
+
+  const go = yes ? "y" : await ask("\nProceed? [y/N]: ", "n");
+  if (!/^y(es)?$/i.test(go.trim())) {
+    console.log("Nothing removed.");
+    return;
+  }
+
+  for (const p of present) rmSync(p, { recursive: true, force: true });
+  pruneEmpty([join(homedir(), ".agents", "skills"), join(homedir(), ".agents")]);
+  if (present.length) console.log(`\nRemoved ${present.length} item${present.length > 1 ? "s" : ""}.`);
+
+  if (canSelfRemove) {
+    console.log("Uninstalling the npm package…");
+    const res = spawnSync("npm", ["uninstall", "-g", "personal-artifact"], { stdio: "inherit" });
+    if (res.error || res.status !== 0) {
+      console.log("\nThe files are gone, but npm did not finish. Run this yourself:");
+      console.log("  npm uninstall -g personal-artifact");
+    }
+  } else if (!keepPackage) {
+    console.log("\nOne step left — run:");
+    console.log("  npm uninstall -g personal-artifact");
+  }
+
+  console.log(`\nYour artifacts are still on ${site}, and so is your token.`);
+  console.log(`Revoke it at ${site}/settings if you are done for good.\n`);
+}
+
 /* ---------- run ---------- */
 
 async function main() {
@@ -201,6 +291,11 @@ async function main() {
   };
 
   try {
+    if (argv[0] === "uninstall") {
+      await uninstall({ ask, site: (existing.site || DEFAULT_SITE).replace(/\/$/, "") });
+      return;
+    }
+
     console.log("\npersonal-artifact — publish artifacts from your coding agent.\n");
 
     const site = (
