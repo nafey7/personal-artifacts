@@ -52,7 +52,7 @@ node scripts/claim-existing.mjs you@example.com
 ## CLI
 
 ```
-cd cli && npm link
+npm install -g personal-artifact
 personal-artifact
 ```
 
@@ -65,8 +65,8 @@ and is safe to re-run whenever you install another one or rotate a token.
 Publish:
 
 ```
-publish ./artifact.html "Load test report"
-publish ./artifact.html "Load test report" --project "Client Work"
+artifact-publish ./artifact.html "Load test report"
+artifact-publish ./artifact.html "Load test report" --project "Client Work"
 ```
 
 It prints the URL. `--project` must name a project that already exists.

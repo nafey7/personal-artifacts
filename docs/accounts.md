@@ -296,8 +296,9 @@ carrying the failures.
   against `GET /api/me` before writing anything, detects which coding tools are
   installed, prints exactly what it will write, and asks. Re-runnable: run it
   again after installing another tool or rotating a token.
-- `publish` — unchanged in shape; `publish ./page.html "Title" [--project X]`
-  prints the URL.
+- `artifact-publish` — `artifact-publish ./page.html "Title" [--project X]`
+  prints the URL. Named in full rather than as a bare `publish`, which is too
+  generic a name to claim on someone's `PATH`.
 
 Detection treats a tool as installed if its home directory exists or its binary
 is on `PATH`. It writes `~/.artifact-publish.json` at mode `0600`, plus the
@@ -314,4 +315,4 @@ that is not there.
   vector it did not cover is now closed by the sandbox.
 - Untested: whether Cursor shows the skill twice when both `~/.agents/skills`
   and `~/.claude/skills` contain it.
-- The package is not published to npm yet.
+- The package is MIT licensed and ready to publish; `personal-artifact` was free on npm as of this writing.

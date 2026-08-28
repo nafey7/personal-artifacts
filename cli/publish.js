@@ -21,7 +21,7 @@ for (let i = 0; i < argv.length; i++) {
 
 const [file, ...rest] = positional;
 if (!file) {
-  console.error('usage: publish ./artifact.html "Title" [--project "Folder"]');
+  console.error('usage: artifact-publish ./artifact.html "Title" [--project "Folder"]');
   process.exit(1);
 }
 

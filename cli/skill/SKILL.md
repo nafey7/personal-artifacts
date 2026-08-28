@@ -1,12 +1,12 @@
 ---
 name: personal-artifact
-description: Design a self-contained HTML page and publish it to the user's own artifact site with the `publish` CLI, returning a live URL. Use whenever the user asks to publish, host, or put something online as a personal artifact — a report, dashboard, memo, landing page, chart, one-pager, visual explainer — or says "publish this", "make me an artifact", "put this on my site", "personal artifact".
+description: Design a self-contained HTML page and publish it to the user's own artifact site with the `artifact-publish` CLI, returning a live URL. Use whenever the user asks to publish, host, or put something online as a personal artifact — a report, dashboard, memo, landing page, chart, one-pager, visual explainer — or says "publish this", "make me an artifact", "put this on my site", "personal artifact".
 ---
 
 # Personal Artifact
 
 Design a standalone HTML page, then publish it to the user's own site with the
-`publish` CLI. The result is a real URL they can share.
+`artifact-publish` CLI. The result is a real URL they can share.
 
 This is **not** the claude.ai Artifact host. The mechanics differ in ways that
 break pages if you get them wrong — read "The target" before writing any HTML.
@@ -46,7 +46,7 @@ entire HTTP response body at `/a/<slug>`. Consequences:
 
 ## Publishing
 
-The `publish` CLI is installed globally and works from any directory. It reads
+The `artifact-publish` CLI is installed globally and works from any directory. It reads
 `~/.artifact-publish.json` for the site URL and auth token, POSTs to the live
 site over HTTPS, and prints the public URL. It needs no local server, no build,
 and no dev dependencies.
@@ -55,7 +55,7 @@ Write the file somewhere scratch (not into the user's project unless they asked
 for a file), then:
 
 ```
-publish /path/to/page.html "Human Readable Title"
+artifact-publish /path/to/page.html "Human Readable Title"
 ```
 
 It prints one line — the URL. Report that URL to the user as the deliverable.
@@ -67,7 +67,7 @@ Two titles are in play; keep them consistent:
 Both follow the same rule: a short, specific noun phrase, typically two to four
 words. Name the page, don't caption it — no explainer after a dash or colon.
 
-If `publish` fails:
+If `artifact-publish` fails:
 - `missing or invalid config` → `~/.artifact-publish.json` is absent or
   malformed; it needs `{ "site": "...", "token": "..." }`.
 - `401` → the token no longer matches `UPLOAD_TOKEN` on the deployment.

@@ -5,9 +5,38 @@
   "type": "module",
   "bin": {
     "personal-artifact": "./init.js",
-    "publish": "./publish.js"
+    "artifact-publish": "./publish.js"
   },
-  "files": ["init.js", "publish.js", "skill/SKILL.md"],
-  "engines": { "node": ">=18" },
-  "license": "MIT"
+  "files": [
+    "init.js",
+    "publish.js",
+    "skill/SKILL.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "keywords": [
+    "artifact",
+    "publish",
+    "html",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "cursor",
+    "agent-skills",
+    "skill",
+    "static-site"
+  ],
+  "homepage": "https://github.com/nafey7/personal-artifacts#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nafey7/personal-artifacts.git",
+    "directory": "cli"
+  },
+  "bugs": {
+    "url": "https://github.com/nafey7/personal-artifacts/issues"
+  }
 }
