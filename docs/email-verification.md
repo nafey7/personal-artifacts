@@ -315,12 +315,19 @@ must resolve to a real owner in the `tokens` collection. **This is a breaking
 change** for any install still on the old shared config; those users re-run
 `personal-artifact` to get a per-user token.
 
-**Canonical address.** `cli/init.js:21` still reads
-`https://personal-artifacts-three.vercel.app`. Change `DEFAULT_SITE` to
-`https://artifacts.pallason.com` and update the URL row in
-[accounts.md](accounts.md). Existing installs keep working because
-`cli/init.js:305` prefers the stored `site` over the default; re-running `init`
-moves them.
+**Canonical address.** `DEFAULT_SITE` moves to
+`https://artifacts.pallason.com`, and the URL row in
+[accounts.md](accounts.md) moves with it.
+
+Changing the constant is not enough on its own, in two ways that only showed up
+once it shipped. The default lives in the *published npm package*, so nothing
+reaches anyone until a release is cut — the constant in the repo is not what
+people run. And a stored `site` beat the default unconditionally, so an install
+that already had a config would have stayed on the old address forever; the
+first draft of this plan claimed re-running `init` would move them, which was
+simply wrong. A `RETIRED_SITES` list fixes it: a stored value that is only a
+superseded default counts as no opinion, while a self-hoster's own `--site` is
+never touched.
 
 **The old address — decided: no redirect.** Vercel keeps serving the
 `.vercel.app` URL alongside the custom domain, so every install that still holds

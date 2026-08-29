@@ -20,6 +20,17 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const CONFIG = join(homedir(), ".artifact-publish.json");
 const DEFAULT_SITE = "https://artifacts.pallason.com";
 
+// Addresses the hosted site used to answer on. They still resolve, so an
+// install pointing at one keeps publishing — but a stored value that is merely
+// a superseded default is not an opinion, it is a leftover, and re-running
+// init is how it catches up. A self-hoster's own --site is never in this list.
+const RETIRED_SITES = ["https://personal-artifacts-three.vercel.app"];
+
+function storedSite(value) {
+  if (!value) return undefined;
+  return RETIRED_SITES.includes(String(value).replace(/\/$/, "")) ? undefined : value;
+}
+
 const argv = process.argv.slice(2);
 const flag = (name) => {
   const exact = argv.indexOf(`--${name}`);
@@ -309,7 +320,7 @@ async function main() {
 
   try {
     if (argv[0] === "uninstall") {
-      await uninstall({ ask, site: (existing.site || DEFAULT_SITE).replace(/\/$/, "") });
+      await uninstall({ ask, site: (storedSite(existing.site) || DEFAULT_SITE).replace(/\/$/, "") });
       return;
     }
 
@@ -319,7 +330,7 @@ async function main() {
     // flag wins, then whatever the last run saved, then the hosted site. We
     // still print it, because silently publishing somewhere is worse than one
     // keypress — and the line is where self-hosters learn the flag exists.
-    const chosen = flag("site") ?? existing.site ?? DEFAULT_SITE;
+    const chosen = flag("site") ?? storedSite(existing.site) ?? DEFAULT_SITE;
     const site = chosen.replace(/\/$/, "");
 
     if (!site) {
