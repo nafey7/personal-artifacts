@@ -70,7 +70,8 @@ words. Name the page, don't caption it — no explainer after a dash or colon.
 If `artifact-publish` fails:
 - `missing or invalid config` → `~/.artifact-publish.json` is absent or
   malformed; it needs `{ "site": "...", "token": "..." }`.
-- `401` → the token no longer matches `UPLOAD_TOKEN` on the deployment.
+- `401` → the token has been revoked or no longer exists on the deployment;
+  re-run `personal-artifact` to sign in again.
 - `500` → the site cannot reach MongoDB (check Atlas network access / cluster
   state), not a problem with the HTML.
 

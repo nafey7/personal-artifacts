@@ -572,9 +572,42 @@ body {
   border-radius: 8px;
   padding: .5rem .65rem;
 }
+/* Confirmation of something that worked, sitting where an error would. */
+.authok {
+  font-size: .82rem;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: .5rem .65rem;
+}
+
+/* Six characters read off a phone and typed back — spaced out so a mistyped
+   one is easy to spot, and uppercased so the code always looks like the mail. */
+.authcode {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .4em;
+  text-transform: uppercase;
+  text-align: center;
+  font-size: 1.05rem;
+}
+
+.authaside { font-size: .82rem; text-align: right; margin-top: -.2rem; }
+.authaside a { color: var(--ink-soft); text-decoration: none; }
+.authaside a:hover { color: var(--accent); text-decoration: underline; }
+
 .authswap { font-size: .84rem; color: var(--ink-soft); text-align: center; }
 .authswap a { color: var(--accent); text-decoration: none; }
 .authswap a:hover { text-decoration: underline; }
+
+/* A button that has to read as a link: resending is an action, not navigation. */
+.authlink {
+  background: none; border: 0; padding: 0;
+  font: inherit; color: var(--accent);
+  cursor: pointer;
+}
+.authlink:hover:not(:disabled) { text-decoration: underline; }
+.authlink:disabled { opacity: .55; cursor: not-allowed; }
 
 /* ---------- share toggle ---------- */
 .rowshare {

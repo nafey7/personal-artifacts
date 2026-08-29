@@ -1,5 +1,4 @@
-import { artifacts, projects, users, toObjectId } from "@/lib/mongo";
-import { normalizeEmail } from "@/lib/auth";
+import { artifacts, projects, toObjectId } from "@/lib/mongo";
 import { ownerOfToken } from "@/lib/tokens";
 import { slugify } from "@/lib/slug";
 
@@ -10,21 +9,6 @@ export const dynamic = "force-dynamic";
 // exists so one embedded video can't take a meaningful slice of the cluster.
 const MAX_BYTES = Number(process.env.MAX_ARTIFACT_BYTES || 2_000_000);
 const MAX_PER_USER = Number(process.env.MAX_ARTIFACTS_PER_USER || 200);
-
-// Deprecated: one shared secret for the whole deployment, kept so existing CLI
-// configs keep working. It publishes into UPLOAD_USER_EMAIL's account, or the
-// oldest account. Remove it before signup opens — see docs/accounts.md.
-async function legacyOwner(presented) {
-  const secret = process.env.UPLOAD_TOKEN;
-  if (!secret || presented !== secret) return null;
-
-  const col = await users();
-  const email = normalizeEmail(process.env.UPLOAD_USER_EMAIL);
-  const doc = email
-    ? await col.findOne({ email })
-    : await col.find({}).sort({ createdAt: 1 }).limit(1).next();
-  return doc ? doc._id.toString() : null;
-}
 
 // Accepts a project id, slug or exact name so the CLI can pass whichever the
 // caller has to hand. Only the owner's own projects are searched. Returns
@@ -49,7 +33,10 @@ export async function POST(request) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const userId = (await ownerOfToken(presented)) || (await legacyOwner(presented));
+  // Every token resolves to an owner. The shared deployment-wide secret that
+  // used to stand in for one is gone: signup is open now, so a credential with
+  // nobody's name on it is no longer something to tolerate.
+  const userId = await ownerOfToken(presented);
   if (!userId) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }

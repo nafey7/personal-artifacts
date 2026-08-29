@@ -18,7 +18,7 @@ import { fileURLToPath } from "url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CONFIG = join(homedir(), ".artifact-publish.json");
-const DEFAULT_SITE = "https://personal-artifacts-three.vercel.app";
+const DEFAULT_SITE = "https://artifacts.pallason.com";
 
 const argv = process.argv.slice(2);
 const flag = (name) => {
@@ -155,7 +155,13 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // The device flow: ask the site for a pair of codes, send the person to the
 // browser with the short one, and poll with the long one until they approve.
-async function signInWithBrowser(site, { noBrowser }) {
+// A sign-in request is only good for ten minutes, and someone signing up for
+// the first time has to go and read their email inside that window. So an
+// expired request is not fatal here: we start a fresh one and reopen the
+// browser, up to ATTEMPTS times.
+const ATTEMPTS = 3; // three ten-minute windows
+
+async function requestApproval(site, { noBrowser, again }) {
   const started = await fetch(`${site}/api/cli/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -168,6 +174,9 @@ async function signInWithBrowser(site, { noBrowser }) {
   const { userCode, deviceCode, verifyUrl, expiresIn, pollInterval } = await started.json();
 
   const opened = noBrowser ? false : openBrowser(verifyUrl);
+  if (again) {
+    console.log("\n\nThat request expired, so here is a fresh one — use this tab, not the old one.");
+  }
   console.log(opened ? "\nOpening your browser to sign in…" : "\nTo sign in, open this in your browser:");
   console.log(`  ${verifyUrl}`);
   console.log(`\n  code: ${userCode}   machine: ${deviceName()}`);
@@ -192,7 +201,15 @@ async function signInWithBrowser(site, { noBrowser }) {
     if (data.status === "denied") throw new Error("refused in the browser — nothing was written");
     if (data.status === "expired") break;
   }
-  throw new Error("timed out waiting for approval — run the command again");
+  return null; // the window closed; the caller decides whether to open another
+}
+
+async function signInWithBrowser(site, { noBrowser }) {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const result = await requestApproval(site, { noBrowser, again: attempt > 0 });
+    if (result) return result;
+  }
+  throw new Error("gave up waiting for approval — run the command again when you have a moment");
 }
 
 /* ---------- undoing all of it ---------- */

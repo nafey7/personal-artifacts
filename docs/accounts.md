@@ -41,7 +41,7 @@ and only the owner can read what they publish unless they choose to share a link
 | --- | --- |
 | Name | `personal-artifact` — package, skill, and service agree |
 | Hosting | Hosted SaaS, run by the author. Not self-hosted per developer |
-| URL | `personal-artifacts-three.vercel.app` for now; a real domain when it opens past the team |
+| URL | `artifacts.pallason.com`. The old `personal-artifacts-three.vercel.app` still resolves |
 | Distribution | npm package with an `init` command, not an MCP server |
 | Install scope | Global, into paths that already exist. Never create a vendor directory speculatively |
 | Sharing | Private by default plus opt-in public links. No teams, roles, or workspaces |
@@ -112,9 +112,9 @@ Two consequences:
 2. ~~Sandbox the artifact renderer~~ — built, phase 4 below.
 3. ~~Guardrails~~ — built, see Guardrails.
 4. ~~The npm package~~ — built, see The package.
-5. **Open the doors.** Drop `SIGNUP_CODE`, delete the `UPLOAD_TOKEN` fallback,
-   and add email verification and password reset. The only remaining item, and
-   the only one that needs an account somewhere else: a mail provider.
+5. ~~Open the doors~~ — built. `SIGNUP_CODE` and the `UPLOAD_TOKEN` fallback
+   are gone, and signup now verifies the address by email. See
+   [email-verification.md](email-verification.md).
 
 ### Abuse surface
 
@@ -163,9 +163,9 @@ so there is no separate migration step to forget.
 - `/api/projects` and `/api/artifacts/[id]` now return 401 without a session.
   These were completely open before; login would have been decorative otherwise.
 
-**Invite gate.** If `SIGNUP_CODE` is set, signup requires a matching `code` and
-the form shows an invite-code field. Leave it unset for open signup. This is the
-cheap way to run a team-only deployment before proper invitations exist.
+**Invite gate — removed.** `SIGNUP_CODE` gated the deployment until email
+verification replaced it. Signup is open to anyone who can receive a code at the
+address they typed; see [email-verification.md](email-verification.md).
 
 **Deliberate choices.**
 
@@ -196,10 +196,10 @@ mutation. Re-filing an artifact only accepts a destination project the caller
 owns. Project names are unique per account, not globally — two people can both
 have a "Client Work".
 
-**Uploads.** `UPLOAD_TOKEN` is still one shared secret, so `/api/upload` has to
-be told whose account to publish into: `UPLOAD_USER_EMAIL` if set, otherwise the
+**Uploads.** `UPLOAD_TOKEN` was one shared secret, so `/api/upload` had to be
+told whose account to publish into: `UPLOAD_USER_EMAIL` if set, otherwise the
 oldest account. Uploaded artifacts are stamped `visibility: "private"`. Phase 3
-replaces this with real per-user tokens.
+replaced this with real per-user tokens, and phase 5 deleted the fallback.
 
 **Migration.** `node scripts/claim-existing.mjs [email] [--dry-run]` assigns
 every document that still lacks a `userId` to one account and marks the
@@ -224,10 +224,10 @@ shows the exact `~/.artifact-publish.json` to write. `GET /api/me` answers with
 the token's owner, which is how `init` validates a paste before writing it to
 disk.
 
-`UPLOAD_TOKEN` still works as a fallback for configs that predate this, mapped
-to `UPLOAD_USER_EMAIL` or the oldest account. **Delete it before signup
-opens** — it is a shared secret with no owner, and the only reason it survives
-is to keep an existing install publishing.
+`UPLOAD_TOKEN` survived for a while as a fallback for configs that predate
+this. It is now gone: a bearer token must resolve to a real owner in `tokens`.
+Any install still on the old shared config gets a 401 and re-runs
+`personal-artifact` to get a token of its own.
 
 ## Phase 4 — private artifact pages (built)
 
@@ -330,11 +330,44 @@ useless without the device code that never left their machine.
 `--token` remains for headless boxes where no browser can open, and
 `--no-browser` prints the URL instead of launching one.
 
+## Phase 5 — email verification & open signup (built)
+
+Signup no longer creates an account. It parks `{ name, passwordHash, codeHash,
+attempts }` in `pendingSignups`, keyed by email so a re-submission replaces the
+first attempt, and emails a six-character code. `POST /api/auth/verify` checks
+the code and does the account creation and `createSession` that signup used to
+do; `POST /api/auth/resend` issues a fresh code. Ten minutes, five guesses.
+There is no signed-in-but-unverified state, so nothing else in the app needs a
+gate.
+
+Password reset is the same machinery: `passwordResets`, `POST
+/api/auth/reset/request` (which always reports success, unlike signup) and
+`POST /api/auth/reset/confirm`, which sets the new `passwordHash` and deletes
+every session for that account.
+
+`lib/email.js` is the only file that knows how mail is sent — one `fetch` to
+Resend, no SDK, keeping `lib/` dependency-free. It needs `RESEND_API_KEY` (a
+sending-only key) and `MAIL_FROM`, which is `Pallason <noreply@pallason.com>`
+for every product on the domain.
+
+Both new collections carry the same `expiresAt` TTL index as `sessions` and
+`pendingAuth`, declared in the same `ensureIndexes` block, so there is still no
+migration step. Existing accounts are verified by definition — they predate this
+and were hand-invited, so there is no flag and no backfill.
+
+The CLI survives a slow inbox: `signInWithBrowser` now restarts an expired
+request up to three times, reopening the browser each time, and `/cli/auth`
+points an expired tab at the newer one instead of telling people to re-run the
+command.
+
 ## Known gaps
 
-- No password reset, no email verification, no session list / "sign out
-  everywhere". All three need a mail provider.
-- `UPLOAD_TOKEN` still works and has no owner. Delete it before signup opens.
+- No session list / "sign out everywhere". Password reset does destroy every
+  session for the account, but there is no way to see or end one deliberately.
+- No way to change the email on an account: verification proves the address at
+  signup and never again.
+- New sending domain, so mail may land in spam until reputation builds. There is
+  no DMARC record yet — one DNS row, worth doing.
 - Sessions are not rotated on sign in. There is no CSRF token; `sameSite=lax`
   plus JSON-only endpoints covers the ordinary cross-site case, and the artifact
   vector it did not cover is now closed by the sandbox.

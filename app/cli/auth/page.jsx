@@ -27,9 +27,10 @@ export default async function CliAuth({ searchParams }) {
         <div className="authcard">
           <h1>That code has expired</h1>
           <p className="authnote">
-            Sign-in requests are good for ten minutes. Run{" "}
-            <code>personal-artifact</code> again in your terminal to start a new
-            one.
+            Sign-in requests are good for ten minutes. Your terminal has almost
+            certainly started a fresh one already — look for a newer browser tab
+            and approve the machine there. If there isn&rsquo;t one, run{" "}
+            <code>personal-artifact</code> again.
           </p>
         </div>
       </div>

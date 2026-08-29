@@ -10,5 +10,5 @@ export default async function SignUp({ searchParams }) {
   const { next } = await searchParams;
   // Only in-app paths, so ?next= can't be pointed at another site.
   const target = typeof next === "string" && next.startsWith("/") && !next.startsWith("//") ? next : "/";
-  return <AuthForm mode="signup" next={target} inviteOnly={Boolean(process.env.SIGNUP_CODE)} />;
+  return <AuthForm mode="signup" next={target} />;
 }
