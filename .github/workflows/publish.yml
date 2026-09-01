@@ -1,15 +1,17 @@
 name: Publish to npm
 
-# Releases are cut by tagging: `npm version patch` in cli/, then push the tag.
-# Publishing happens here over OIDC, so there is no npm token in this repo and
-# no 2FA prompt to answer.
+# Releases follow the version in cli/package.json. Bump it, push to main, and
+# this publishes and tags. Pushing a v* tag by hand still works. Publishing
+# happens over OIDC, so there is no npm token in this repo and no 2FA prompt
+# to answer.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # to push the release tag back
   id-token: write # required — this is what proves the workflow's identity to npm
 
 jobs:
@@ -39,8 +41,43 @@ jobs:
             echo "tag $tag does not match cli/package.json $pkg" >&2
             exit 1
           fi
-          echo "publishing $pkg"
+
+      # Most pushes to main do not bump the version, and re-publishing one the
+      # registry already has is an error rather than a no-op. Ask npm what it
+      # has and skip quietly when there is nothing new, so an ordinary push
+      # does not fail on a release step it never meant to run.
+      - name: Decide whether there is anything to publish
+        id: check
+        run: |
+          pkg="$(node -p "require('./cli/package.json').version")"
+          name="$(node -p "require('./cli/package.json').name")"
+          echo "version=$pkg" >> "$GITHUB_OUTPUT"
+
+          # `npm view` exits non-zero when the version is absent, which is
+          # exactly the case we want to publish in — so read the output rather
+          # than the exit code, and let a lookup failure mean "already there"
+          # so a registry hiccup never double-publishes.
+          if published="$(npm view "$name@$pkg" version 2>/dev/null)" && [ -n "$published" ]; then
+            echo "$name@$pkg is already on npm — nothing to do"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publishing $name@$pkg"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Publish
+        if: steps.check.outputs.publish == 'true'
         working-directory: cli
         run: npm publish --access public
+
+      # Keep the git history and the registry telling the same story. Only for
+      # branch pushes; a tag push already has its tag.
+      - name: Tag the release
+        if: steps.check.outputs.publish == 'true' && startsWith(github.ref, 'refs/heads/')
+        env:
+          v: ${{ steps.check.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "v$v"
+          git push origin "v$v"
