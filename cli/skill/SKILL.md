@@ -13,8 +13,8 @@ break pages if you get them wrong — read "The target" before writing any HTML.
 
 ## The target
 
-The site stores whole HTML documents in MongoDB and serves each one as the
-entire HTTP response body at `/a/<slug>`. Consequences:
+The site stores whole HTML documents and serves each one as the entire HTTP
+response body at `/a/<slug>`. Consequences:
 
 - **Write a complete document.** `<!doctype html>`, `<html lang="en">`, `<head>`
   with `<meta charset="utf-8">` and `<meta name="viewport" content="width=device-width, initial-scale=1">`,
@@ -187,8 +187,8 @@ If `artifact-publish` fails — meaning the command itself exits non-zero:
 - `404` on `--update` or `get` → that slug isn't one of theirs; run
   `artifact-publish list` to find the right one, or publish fresh.
 - `413` → the page is over 2MB; inline less and link large media.
-- `500` → the site cannot reach MongoDB (check Atlas network access / cluster
-  state), not a problem with the HTML.
+- `500` → a problem on the site's side, not with the HTML. Retry; if it
+  persists, the site itself needs attention.
 
 A 404 when *fetching* a published URL is not in this list. That is the artifact
 being private — see "Privacy" above.

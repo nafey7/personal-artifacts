@@ -144,8 +144,8 @@ The point is that the page it produces should be one you'd send to a client.
 
 ## Self-hosting
 
-The site is a small Next.js app backed by MongoDB, and runs on free tiers. Sign
-in against your own deployment with `personal-artifact --site <url>`; it is
-saved, so later runs need the flag only to change it.
+The CLI is not tied to one host. Point it at your own deployment with
+`personal-artifact --site <url>`; the choice is saved, so later runs need the
+flag only to change it.
 
 Source: https://github.com/nafey7/personal-artifacts

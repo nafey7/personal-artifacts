@@ -1,6 +1,6 @@
 {
   "name": "personal-artifact",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Publish self-contained HTML artifacts to your own private site from any coding agent.",
   "type": "module",
   "bin": {
