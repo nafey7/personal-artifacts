@@ -71,14 +71,72 @@ said.
 Flags:
 
 ```
---project "Folder"    file it under a project that already exists
---public              anyone with the link can open it
---update <slug>       replace something you already published, keeping its URL
+--project "Folder"      file it under a project that already exists
+--new-project "Folder"  file it under this project, creating it if it does not exist
+--public                anyone with the link can open it
+--expires 7d            share it, and close the link after 30m / 24h / 7d / 2w,
+                        or at an ISO date
+--passphrase <text>     share it, and ask for this passphrase before it opens
+--update <slug>         replace something you already published, keeping its URL
 ```
+
+`--project` with a name that does not exist fails, and the error lists the
+projects that do — pick the right one from that list, or use `--new-project`
+when the user actually wants a new folder. Never create a near-duplicate of a
+folder that already exists ("Client work" next to "Client Work").
 
 Publish `--public` when the user says the page is for someone else — to send,
 share, show a client, put in a doc. Otherwise leave it private; they can share
 it later from the dashboard without the URL changing.
+
+`--expires` and `--passphrase` are the two ways to share less than forever,
+and both imply `--public`. Use them only when the user asks for them:
+
+- "share this for a week", "a link that dies Friday" → `--expires 7d` (or an
+  ISO date). After that instant the link goes back to private; the owner can
+  still open it and can share it again from the dashboard.
+- "put a password on it", "only people I give the passphrase to" →
+  `--passphrase`. If the user gave a passphrase, pass it exactly. If they did
+  not, make one up that can be read out over the phone — three or four plain
+  words — pass it, and **tell the user what it is in your report**: the site
+  stores only a hash and cannot show it to them later. Prefer the
+  `ARTIFACT_PASSPHRASE` environment variable over the flag when the shell
+  history matters.
+
+The owner is never asked for the passphrase and never locked out by the
+expiry. A viewer who has neither sees a small page saying the link has expired
+or asking for the passphrase — never the 404 that a private artifact returns.
+On `--update`, options you don't mention are left as they were; `--expires
+never` clears an expiry.
+
+## Reading back what is published
+
+The same CLI lists and fetches the user's artifacts, so you never have to ask
+them to dig a slug out of the dashboard:
+
+```
+artifact-publish projects                          # the user's project folders
+artifact-publish list                              # every artifact, newest first
+artifact-publish list --project "Client Work"      # one folder
+artifact-publish list --search dashboard           # title match, case-insensitive
+artifact-publish get <slug> --out /tmp/page.html   # the published HTML, to a file
+artifact-publish get <slug>                        # the HTML on stdout
+```
+
+`list` prints one line per artifact: slug, last updated date, who can open it
+(`private`, `public`, `passphrase`, or `expired`), project, title. Add `--json`
+to any of these for the raw API response (it includes `url`, `createdAt`,
+`updatedAt`, `bytes`, `expiresAt`, `hasPassphrase`).
+
+Use this whenever the user refers to something they already published — "update
+the dashboard from last week", "what's in the client folder", "make last
+month's report public". The flow for an edit is: `list` to find the slug,
+`get --out` to fetch the HTML, edit the file, then publish it back with
+`--update <slug>` so the URL stays the same. If `list` finds more than one
+plausible match, ask which one rather than guessing.
+
+Behind the CLI these are `GET /api/projects`, `GET /api/artifacts` and
+`GET /api/artifacts/<slug>`, all taking the same `Authorization: Bearer` token.
 
 ## Privacy
 
@@ -123,7 +181,11 @@ If `artifact-publish` fails — meaning the command itself exits non-zero:
   malformed; it needs `{ "site": "...", "token": "..." }`.
 - `401` → the token has been revoked or no longer exists on the deployment;
   re-run `personal-artifact` to sign in again.
-- `404` on `--update` → that slug isn't one of theirs; publish it fresh instead.
+- `400` naming an `unknown project` → the name doesn't match any of their
+  folders; the message lists the ones that exist. Use one of those, or
+  `--new-project` if a new folder was the intent.
+- `404` on `--update` or `get` → that slug isn't one of theirs; run
+  `artifact-publish list` to find the right one, or publish fresh.
 - `413` → the page is over 2MB; inline less and link large media.
 - `500` → the site cannot reach MongoDB (check Atlas network access / cluster
   state), not a problem with the HTML.

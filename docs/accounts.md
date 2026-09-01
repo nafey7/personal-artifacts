@@ -236,8 +236,26 @@ Any install still on the old shared config gets a 401 and re-runs
    private `/a/[slug]` is served only to its owner's session; everyone else gets
    the same 404 as an unknown slug, so the endpoint can't be probed for which
    artifacts exist. Private responses are `Cache-Control: private, no-store`.
-   Each dashboard row has a Private/Shared toggle that flips the flag through
-   `PATCH /api/artifacts/[id]`, for the cases where sharing a link is the point.
+   Each dashboard row has a Private/Shared button that opens a share sheet and
+   saves through `PATCH /api/artifacts/[id]`, for the cases where sharing a
+   link is the point.
+3. **Share options — built.** A shared link is no longer all-or-nothing
+   forever. Two optional fields ride alongside `visibility: "public"`:
+   `shareExpiresAt` (a Date) and `sharePassHash` (scrypt, the same format as a
+   password). Past the expiry a stranger gets a 410 "this link has expired"
+   page rather than the private 404 — the owner chose to hand the link out, and
+   a client holding a stale one needs to know to ask again rather than
+   conclude the site is down. With a passphrase set, `/a/<slug>` renders a
+   small prompt; the form POSTs back to the same URL, wrong answers are rate
+   limited per address and per artifact, and a right one sets an `httpOnly`
+   cookie scoped to `/a/<slug>` whose value is an HMAC of the slug keyed by the
+   stored hash. That means no grant table: the cookie can't be turned back into
+   the passphrase, can't be presented for another artifact, and dies the moment
+   the passphrase is changed or removed. It also lives no longer than the link.
+   The owner's session or token bypasses both checks, and the response is
+   never cacheable when either is set. Going private clears both options; the
+   CLI exposes them as `--expires` and `--passphrase`, both of which imply
+   `--public`.
 2. **Isolation — built.** An artifact's own
    JavaScript runs on the app's origin. It cannot read the `httpOnly` session
    cookie, but it *can* call `/api/projects` and `/api/artifacts/[id]` with the

@@ -3,6 +3,28 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Confirm from "./Confirm";
+import ShareDialog from "./ShareDialog";
+
+// "6d", "23h", "40m" — how long a shared link has left. Coarse on purpose:
+// the exact instant is in the share sheet.
+function timeLeft(iso) {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return "0m";
+  const minutes = Math.ceil(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.ceil(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.ceil(hours / 24)}d`;
+}
+
+function shareTitle(d) {
+  if (!d.isPublic) return "Only you can open this. Click to share the link.";
+  if (d.isExpired) return "This link has expired. Click to share it again.";
+  const parts = ["Anyone with the link can open this"];
+  if (d.hasPassphrase) parts.push("after typing the passphrase");
+  if (d.expiresStamp) parts.push(`until ${d.expiresStamp} UTC`);
+  return `${parts.join(" ")}. Click to change.`;
+}
 
 export default function ArtifactList({ items, projects, showProject = true }) {
   const router = useRouter();
@@ -10,6 +32,7 @@ export default function ArtifactList({ items, projects, showProject = true }) {
   const [pending, setPending] = useState(null); // id of the row being mutated
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(null);
+  const [sharing, setSharing] = useState(null);
 
   const names = useMemo(
     () => new Map(projects.map((p) => [p.id, p.name])),
@@ -47,6 +70,10 @@ export default function ArtifactList({ items, projects, showProject = true }) {
     }
   }
 
+  async function patch(id, body) {
+    return mutate(id, { method: "PATCH", body: JSON.stringify(body) });
+  }
+
   return (
     <section>
       <div className="listhead">
@@ -69,7 +96,7 @@ export default function ArtifactList({ items, projects, showProject = true }) {
         </div>
       </div>
 
-      {error && <p className="naverror" role="alert">{error}</p>}
+      {error && !sharing && <p className="naverror" role="alert">{error}</p>}
 
       {visible.length === 0 ? (
         <div className="empty">
@@ -89,21 +116,22 @@ export default function ArtifactList({ items, projects, showProject = true }) {
 
               <button
                 type="button"
-                className={`rowshare${d.isPublic ? " is-public" : ""}`}
+                className={`rowshare${d.isPublic && !d.isExpired ? " is-public" : ""}${d.isExpired ? " is-expired" : ""}`}
                 disabled={pending === d.id}
-                onClick={() =>
-                  mutate(d.id, {
-                    method: "PATCH",
-                    body: JSON.stringify({ visibility: d.isPublic ? "private" : "public" }),
-                  })
-                }
-                title={
-                  d.isPublic
-                    ? "Anyone with the link can open this. Click to make it private."
-                    : "Only you can open this. Click to share the link."
-                }
+                onClick={() => { setSharing(d); setError(""); }}
+                title={shareTitle(d)}
+                aria-label={`Sharing for ${d.title}`}
               >
-                {d.isPublic ? "Shared" : "Private"}
+                {d.isPublic && !d.isExpired && d.hasPassphrase && (
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="4" y="11" width="16" height="10" rx="2" />
+                    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                  </svg>
+                )}
+                {!d.isPublic ? "Private" : d.isExpired ? "Expired" : "Shared"}
+                {d.isPublic && !d.isExpired && d.expiresAt && (
+                  <span className="left" suppressHydrationWarning>{timeLeft(d.expiresAt)}</span>
+                )}
               </button>
 
               {showProject && (
@@ -112,12 +140,7 @@ export default function ArtifactList({ items, projects, showProject = true }) {
                   value={d.projectId ?? ""}
                   disabled={pending === d.id}
                   aria-label={`Project for ${d.title}`}
-                  onChange={(e) =>
-                    mutate(d.id, {
-                      method: "PATCH",
-                      body: JSON.stringify({ projectId: e.target.value || null }),
-                    })
-                  }
+                  onChange={(e) => patch(d.id, { projectId: e.target.value || null })}
                 >
                   <option value="">Unfiled</option>
                   {projects.map((p) => (
@@ -141,6 +164,23 @@ export default function ArtifactList({ items, projects, showProject = true }) {
             </div>
           ))}
         </div>
+      )}
+
+      {sharing && (
+        <ShareDialog
+          artifact={sharing}
+          pending={pending === sharing.id}
+          error={error}
+          onCancel={() => { setSharing(null); setError(""); }}
+          onSave={async (body) => {
+            const ok = await patch(sharing.id, body);
+            if (ok) setSharing(null);
+          }}
+          onStop={async () => {
+            const ok = await patch(sharing.id, { visibility: "private" });
+            if (ok) setSharing(null);
+          }}
+        />
       )}
 
       {confirming && (

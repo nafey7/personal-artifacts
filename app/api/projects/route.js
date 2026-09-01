@@ -1,26 +1,22 @@
-import { artifacts, projects } from "@/lib/mongo";
+import { artifacts } from "@/lib/mongo";
 import { requireUser } from "@/lib/guard";
-import { slugify } from "@/lib/slug";
+import { loadProjects } from "@/lib/data";
+import { createProject } from "@/lib/projects";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const { user, response } = await requireUser();
+// Session or API token: the agent uses this to see which folders exist before
+// it picks one, instead of guessing a name and failing at publish time.
+export async function GET(request) {
+  const { user, response } = await requireUser(request);
   if (response) return response;
 
-  const col = await projects();
-  const docs = await col.find({ userId: user.id }).sort({ name: 1 }).toArray();
-  return Response.json({
-    projects: docs.map((p) => ({
-      id: p._id.toString(),
-      name: p.name,
-      slug: p.slug,
-    })),
-  });
+  const { projects, unfiled, total } = await loadProjects(user.id);
+  return Response.json({ projects, unfiled, total });
 }
 
 export async function POST(request) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (response) return response;
 
   let body;
@@ -30,35 +26,18 @@ export async function POST(request) {
     return Response.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  if (!name) return Response.json({ error: "name is required" }, { status: 400 });
-  if (name.length > 80) {
-    return Response.json({ error: "name is too long" }, { status: 400 });
+  const created = await createProject(body.name, user.id);
+  if (created.error) {
+    return Response.json({ error: created.error }, { status: created.status });
   }
 
-  const col = await projects();
-  // Names only have to be unique within one account.
-  const existing = await col.findOne({ name, userId: user.id });
-  if (existing) {
-    return Response.json({ error: "a project with that name already exists" }, { status: 409 });
-  }
-
-  const now = new Date();
-  const doc = {
-    name,
-    slug: slugify(name, "project"),
-    userId: user.id,
-    createdAt: now,
-    updatedAt: now,
-  };
-  const { insertedId } = await col.insertOne(doc);
-
+  const { project } = created;
   // Report the count so the freshly created project renders like the rest.
   const art = await artifacts();
-  const count = await art.countDocuments({ projectId: insertedId.toString(), userId: user.id });
+  const count = await art.countDocuments({ projectId: project._id.toString(), userId: user.id });
 
   return Response.json(
-    { project: { id: insertedId.toString(), name: doc.name, slug: doc.slug, count } },
+    { project: { id: project._id.toString(), name: project.name, slug: project.slug, count } },
     { status: 201 }
   );
 }

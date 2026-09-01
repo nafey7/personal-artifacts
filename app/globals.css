@@ -627,7 +627,52 @@ body {
   background: var(--accent-bg);
   border-color: var(--rule);
 }
+.rowshare.is-expired { border-style: dashed; }
 .rowshare:disabled { opacity: .5; cursor: not-allowed; }
+.rowshare svg { vertical-align: -1px; margin-right: .32rem; }
+.rowshare .left { margin-left: .4rem; opacity: .75; font-variant-numeric: tabular-nums; }
+.rowshare .left::before { content: "·"; margin-right: .4rem; }
+
+/* ---------- share sheet ---------- */
+.sharelink { display: flex; gap: .5rem; margin-top: 1.1rem; }
+.sharelink code {
+  flex: 1; min-width: 0;
+  font-family: var(--mono); font-size: .8rem;
+  color: var(--accent);
+  background: var(--ground);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  padding: .5rem .65rem;
+  overflow-x: auto; white-space: nowrap;
+}
+.sharefields { display: flex; flex-direction: column; gap: .9rem; margin-top: 1.2rem; }
+.sharefield { display: flex; flex-direction: column; gap: .35rem; }
+.sharefield > span {
+  font-family: var(--mono); font-size: .66rem;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.sharefield select, .sharefield input {
+  width: 100%;
+  font-size: .9rem;
+  background: var(--ground);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  padding: .45rem .6rem;
+  outline: none;
+  color-scheme: dark;
+}
+.sharefield select:focus-visible, .sharefield input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99,201,183,.16);
+}
+.sharefield input::placeholder { color: var(--ink-faint); }
+.sharecheck { display: flex; align-items: center; gap: .55rem; font-size: .9rem; cursor: pointer; }
+.sharecheck input { accent-color: var(--accent); width: 1rem; height: 1rem; margin: 0; }
+.sharehint { display: block; font-style: normal; font-size: .78rem; color: var(--ink-faint); }
+.modal-actions .spacer { flex: 1; }
+.btn-accent { background: var(--accent-bg); color: var(--accent); }
+.btn-accent:hover:not(:disabled) { border-color: var(--accent); }
 
 /* ---------- settings / tokens ---------- */
 .settingslink { margin-bottom: .5rem; grid-template-columns: 1.1rem minmax(0, 1fr); }
@@ -639,6 +684,46 @@ body {
 .settingslede code {
   font-family: var(--mono); font-size: .82rem; color: var(--ink);
 }
+
+.settingshead {
+  font-family: var(--mono); font-size: .7rem; font-weight: 600;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: .6rem;
+}
+
+/* ---------- usage ---------- */
+.usage {
+  max-width: 34rem;
+  padding: 1rem 1.1rem 1.1rem;
+  margin-bottom: 2.2rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: .6rem;
+}
+.usage h2 {
+  font-family: var(--mono); font-size: .7rem; font-weight: 600;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: .5rem;
+}
+.usagefigure { font-size: .95rem; color: var(--ink-soft); }
+.usagefigure strong { font-weight: 500; color: var(--ink); }
+.usagemeter {
+  height: .35rem; margin: .7rem 0 .6rem;
+  background: var(--rule-soft);
+  border-radius: 999px; overflow: hidden;
+}
+.usagemeter span {
+  display: block; height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width .3s ease;
+}
+.usage.is-near .usagemeter span { background: #E3B65E; }
+.usage.is-full .usagemeter span { background: var(--danger); }
+.usagehint { font-size: .84rem; color: var(--ink-soft); }
+.usage.is-full .usagehint { color: var(--danger); }
 
 .tokens { display: flex; flex-direction: column; gap: 1.1rem; }
 

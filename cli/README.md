@@ -58,17 +58,51 @@ Usually you don't run this yourself; your agent does. But it's a normal CLI:
 artifact-publish ./page.html "Load Test Report"
 artifact-publish ./page.html "Load Test Report" --project "Client Work"
 artifact-publish ./page.html "Load Test Report" --public
+artifact-publish ./page.html "Load Test Report" --expires 7d
+artifact-publish ./page.html "Load Test Report" --passphrase "salt marsh heron"
 artifact-publish ./page.html "Load Test Report" --update load-test-report-3f9a1c
 ```
 
 The URL goes to stdout, so piping it still works; one line saying who can open
 it goes to stderr.
 
-- `--project` must name a project that already exists.
+- `--project` must name a project that already exists. If it doesn't, the
+  error lists the projects that do.
+- `--new-project` files the artifact under a project, creating it first if
+  there is no project by that name.
 - `--public` publishes a link anyone can open. Without it the artifact is
   private.
+- `--expires <when>` shares the link and closes it again after `30m`, `24h`,
+  `7d`, `2w`, or at an ISO date. Past that moment the link goes private; you
+  can still open it, and can share it again from the dashboard.
+- `--passphrase <text>` shares the link but asks for the passphrase before the
+  page opens. Set `ARTIFACT_PASSPHRASE` instead to keep it out of your shell
+  history. Only a hash is stored, so write the passphrase down.
 - `--update <slug>` replaces an artifact you already published and keeps its
-  URL, instead of minting a second one.
+  URL, instead of minting a second one. Share options you don't mention stay
+  as they were; `--expires never` clears an expiry.
+
+Both `--expires` and `--passphrase` imply `--public`. You, the owner, are never
+asked for the passphrase and never locked out by the expiry.
+
+## Read back
+
+The CLI can also list and fetch what is already on the site, which is what lets
+an agent act on "update the dashboard from last week" without anyone hunting
+for a slug:
+
+```
+artifact-publish projects                          # your project folders
+artifact-publish list                              # every artifact, newest first
+artifact-publish list --project "Client Work"      # one folder
+artifact-publish list --search dashboard           # title match
+artifact-publish get <slug> --out ./page.html      # the published HTML, to a file
+artifact-publish get <slug>                        # the HTML on stdout
+```
+
+`list` prints one line per artifact — slug, last updated, `public` or
+`private`, project, title. Add `--json` to any of them for the raw API
+response.
 
 ## Private by default
 

@@ -2,8 +2,11 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { currentUser } from "@/lib/auth";
 import { tokens as tokenCol } from "@/lib/mongo";
+import { loadUsage } from "@/lib/data";
+import { MAX_BYTES, MAX_PER_USER } from "@/lib/limits";
 import PageHead from "../PageHead";
 import TokenManager from "./TokenManager";
+import Usage from "./Usage";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings · Artifacts" };
@@ -12,10 +15,10 @@ export default async function Settings() {
   const user = await currentUser();
   if (!user) redirect("/signin");
 
-  const docs = await (await tokenCol())
-    .find({ userId: user.id })
-    .sort({ createdAt: -1 })
-    .toArray();
+  const [docs, usage] = await Promise.all([
+    (await tokenCol()).find({ userId: user.id }).sort({ createdAt: -1 }).toArray(),
+    loadUsage(user.id),
+  ]);
 
   // The config snippet should name the site the user is actually looking at.
   const head = await headers();
@@ -24,7 +27,14 @@ export default async function Settings() {
 
   return (
     <>
-      <PageHead title="API tokens" count={docs.length} />
+      <PageHead title="Settings" count={usage.count} />
+      <Usage
+        count={usage.count}
+        bytes={usage.bytes}
+        maxCount={MAX_PER_USER}
+        maxBytes={MAX_BYTES}
+      />
+      <h2 className="settingshead">API tokens</h2>
       <p className="settingslede">
         A token lets the <code>publish</code> CLI put artifacts into your account
         from any machine. Give each machine its own, so losing one means revoking
