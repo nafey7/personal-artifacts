@@ -4,8 +4,8 @@ Publish self-contained HTML pages to your own private artifact site, from
 whichever coding agent you already use.
 
 You ask your agent to "publish this as an artifact". It designs a real HTML
-page, runs `artifact-publish`, and hands you back a URL. The page is private to your
-account unless you choose to share it.
+page, runs `artifact-publish`, and hands you back a URL. The page is private to
+your account unless you share it — see **Private by default** below.
 
 Works with **Claude Code, Codex, Gemini CLI and Cursor** — the same skill is
 installed for each one you have, in that tool's own skills directory.
@@ -57,9 +57,29 @@ Usually you don't run this yourself; your agent does. But it's a normal CLI:
 ```
 artifact-publish ./page.html "Load Test Report"
 artifact-publish ./page.html "Load Test Report" --project "Client Work"
+artifact-publish ./page.html "Load Test Report" --public
+artifact-publish ./page.html "Load Test Report" --update load-test-report-3f9a1c
 ```
 
-It prints the URL. `--project` must name a project that already exists.
+The URL goes to stdout, so piping it still works; one line saying who can open
+it goes to stderr.
+
+- `--project` must name a project that already exists.
+- `--public` publishes a link anyone can open. Without it the artifact is
+  private.
+- `--update <slug>` replaces an artifact you already published and keeps its
+  URL, instead of minting a second one.
+
+## Private by default
+
+A new artifact opens for you — in a browser you are signed in to, or for a
+request carrying your API token. To anything else the URL returns **404**.
+
+That is worth knowing because agents get it wrong: one publishes, fetches the
+URL to check its work, sees 404, and concludes the site is broken. It isn't.
+The skill in this package now says so explicitly, and the upload response spells
+it out too. To get a link you can send someone, publish with `--public` or mark
+the artifact **Shared** in your dashboard — sharing keeps the same URL.
 
 ## What the skill tells your agent
 
@@ -84,8 +104,9 @@ The point is that the page it produces should be one you'd send to a client.
   published page cannot read the site's cookies or reach another artifact. The
   cost is that `localStorage` and cookies throw inside an artifact — pages must
   hold their state in memory.
-- Publishing is append-only. Each publish mints a new URL; the old one keeps
-  working and keeps its old content.
+- Each publish mints a new URL. To correct a page you already sent someone, use
+  `--update <slug>` rather than publishing again — that keeps the URL and
+  avoids leaving a stale duplicate behind.
 
 ## Self-hosting
 

@@ -15,11 +15,17 @@ the account model and the phases still to come.
 - `GET /unfiled` — artifacts that belong to no project
 - `GET /p/[slug]` — one project's artifacts
 - `GET /a/[slug]` — the artifact, rendered inside a sandboxed iframe. Private by
-  default: only the owner's session gets it, unless the artifact is toggled to
-  Shared in the dashboard.
+  default: the owner's session or their `Authorization: Bearer <API token>` gets
+  it, unless the artifact is toggled to Shared in the dashboard. Anything else
+  gets a 404 that reads the same whether the slug is unknown or simply not
+  yours, and says how to open it if it is.
 - `GET /settings` — API tokens
 - `POST /api/upload` — `Authorization: Bearer <your API token>`, body
-  `{ title, html, project? }` (`project` takes an id, slug or exact name)
+  `{ title, html, project?, visibility?, slug? }` (`project` takes an id, slug
+  or exact name; `visibility` is `private` by default; `slug` replaces that
+  artifact of yours in place rather than minting a new one). The response
+  carries `url`, `visibility` and a plain-language `note` saying who can open
+  it.
 - `GET /api/me` — the token's owner, used by `personal-artifact` to validate a token
 - `POST /api/cli/start|poll` — browser sign-in for the CLI; `POST /api/cli/approve` (session required)
 - `GET /cli/auth?code=` — the page where a machine is approved
@@ -71,9 +77,15 @@ Publish:
 ```
 artifact-publish ./artifact.html "Load test report"
 artifact-publish ./artifact.html "Load test report" --project "Client Work"
+artifact-publish ./artifact.html "Load test report" --public
+artifact-publish ./artifact.html "Load test report" --update load-test-report-3f9a1c
 ```
 
-It prints the URL. `--project` must name a project that already exists.
+It prints the URL on stdout and one line on stderr saying who can open it.
+`--project` must name a project that already exists. `--public` publishes a link
+anyone can open; without it the artifact is private, and fetching its URL
+without your session or token returns 404 by design. `--update` replaces an
+artifact you already published, keeping its URL.
 
 Artifacts are capped at 2MB (`MAX_ARTIFACT_BYTES`) and 200 per account
 (`MAX_ARTIFACTS_PER_USER`).

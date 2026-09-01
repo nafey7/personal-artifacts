@@ -40,16 +40,22 @@ entire HTTP response body at `/a/<slug>`. Consequences:
   render correctly when the value is missing — it always will be. `fetch` to
   external hosts still works; `fetch` back to this site does not.
 - **Never publish a page that collects credentials.**
-- **Publishing is append-only.** Each publish mints a new slug with a random
-  suffix. There is no update-in-place: republishing the same title yields a new
-  URL. Tell the user the old URL still works and still shows the old content.
+- **Artifacts are private by default.** A published URL opens for the owner in
+  a browser they are signed in to, and for a request carrying their API token.
+  To everyone and everything else it returns **404** — that is the artifact
+  being private, not a failed publish. Read "Privacy" below before you report a
+  URL or try to verify one.
+- **A new publish mints a new URL.** Each publish gets a fresh slug with a
+  random suffix, so publishing the same title twice leaves two artifacts. To
+  correct a page you already published, pass `--update <slug>` instead: it
+  replaces the content and keeps the URL that was handed out.
 
 ## Publishing
 
 The `artifact-publish` CLI is installed globally and works from any directory. It reads
 `~/.artifact-publish.json` for the site URL and auth token, POSTs to the live
-site over HTTPS, and prints the public URL. It needs no local server, no build,
-and no dev dependencies.
+site over HTTPS, and prints the URL. It needs no local server, no build, and no
+dev dependencies.
 
 Write the file somewhere scratch (not into the user's project unless they asked
 for a file), then:
@@ -58,7 +64,52 @@ for a file), then:
 artifact-publish /path/to/page.html "Human Readable Title"
 ```
 
-It prints one line — the URL. Report that URL to the user as the deliverable.
+Stdout is one line — the URL. Stderr adds one line saying who can open it.
+Report the URL to the user as the deliverable, along with what that second line
+said.
+
+Flags:
+
+```
+--project "Folder"    file it under a project that already exists
+--public              anyone with the link can open it
+--update <slug>       replace something you already published, keeping its URL
+```
+
+Publish `--public` when the user says the page is for someone else — to send,
+share, show a client, put in a doc. Otherwise leave it private; they can share
+it later from the dashboard without the URL changing.
+
+## Privacy
+
+New artifacts are private. The URL you get back returns **404** to any request
+that doesn't carry the owner's browser session or API token. A fresh `curl` has
+neither, so 404 is the *correct* response there — it does not mean the publish
+failed, the page is missing, or the site is broken.
+
+If it published, it saved. The upload response says so, and the CLI prints the
+URL only on success.
+
+So:
+
+- **Never re-publish to test whether the first one worked.** That mints a
+  second artifact and leaves the user with duplicates. It proves nothing.
+- **Never tell the user the site is broken because a URL 404s.** Check whether
+  the artifact is private first — it is, unless you passed `--public`.
+- **Report the URL honestly:** it opens for them when they're signed in to the
+  site. If they want a link others can open, either publish with `--public` or
+  tell them to mark it Shared in the dashboard.
+
+To verify for real, send the same credential you published with:
+
+```
+curl -s -o /dev/null -w "%{http_code}" \
+  -H "Authorization: Bearer $(node -p "require(require('os').homedir()+'/.artifact-publish.json').token")" \
+  <url>
+```
+
+That returns 200. Verifying is optional — do it when something specific makes
+you doubt the upload, not as a routine step after every publish.
 
 Two titles are in play; keep them consistent:
 - the **CLI argument** becomes the listing name on the site index and the slug;
@@ -67,16 +118,18 @@ Two titles are in play; keep them consistent:
 Both follow the same rule: a short, specific noun phrase, typically two to four
 words. Name the page, don't caption it — no explainer after a dash or colon.
 
-If `artifact-publish` fails:
+If `artifact-publish` fails — meaning the command itself exits non-zero:
 - `missing or invalid config` → `~/.artifact-publish.json` is absent or
   malformed; it needs `{ "site": "...", "token": "..." }`.
 - `401` → the token has been revoked or no longer exists on the deployment;
   re-run `personal-artifact` to sign in again.
+- `404` on `--update` → that slug isn't one of theirs; publish it fresh instead.
+- `413` → the page is over 2MB; inline less and link large media.
 - `500` → the site cannot reach MongoDB (check Atlas network access / cluster
   state), not a problem with the HTML.
 
-Verify after publishing when it matters: `curl -s -o /dev/null -w "%{http_code}" <url>`
-should return 200.
+A 404 when *fetching* a published URL is not in this list. That is the artifact
+being private — see "Privacy" above.
 
 ## Design
 

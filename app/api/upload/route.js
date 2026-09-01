@@ -26,6 +26,16 @@ async function resolveProject(value, userId) {
   return doc ? doc._id.toString() : undefined;
 }
 
+// Said in the response itself, not just in the docs. A caller that publishes
+// and then fetches its own URL without a credential gets a 404 by design; the
+// only way that reads as intended rather than as an outage is if the upload
+// that produced the URL already said what to expect.
+function noteFor(isPublic, origin) {
+  return isPublic
+    ? "public — anyone with this link can open it. Mark it Private in your dashboard to close it again."
+    : `private — it opens for you in a browser you are signed in to, or with this same API token as an Authorization: Bearer header. Fetching it without either returns 404, which is expected and not an error. Share it from ${origin}/ to get a link anyone can open.`;
+}
+
 export async function POST(request) {
   const auth = request.headers.get("authorization") || "";
   const presented = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
@@ -54,6 +64,14 @@ export async function POST(request) {
     return Response.json({ error: "title and html are required" }, { status: 400 });
   }
 
+  let visibility = "private";
+  if ("visibility" in body && body.visibility !== undefined && body.visibility !== null) {
+    if (body.visibility !== "private" && body.visibility !== "public") {
+      return Response.json({ error: "visibility must be private or public" }, { status: 400 });
+    }
+    visibility = body.visibility;
+  }
+
   const bytes = Buffer.byteLength(html, "utf8");
   if (bytes > MAX_BYTES) {
     return Response.json(
@@ -66,20 +84,58 @@ export async function POST(request) {
     );
   }
 
-  const col = await artifacts();
-  if ((await col.countDocuments({ userId })) >= MAX_PER_USER) {
-    return Response.json(
-      { error: `you have reached the limit of ${MAX_PER_USER} artifacts — delete some first` },
-      { status: 409 }
-    );
-  }
-
   let projectId = null;
   if (body.project) {
     projectId = await resolveProject(body.project, userId);
     if (projectId === undefined) {
       return Response.json({ error: `unknown project: ${body.project}` }, { status: 400 });
     }
+  }
+
+  const col = await artifacts();
+  const origin = new URL(request.url).origin;
+
+  // Replacing an artifact in place, keeping its URL. Publishing used to be
+  // append-only, which meant the only way to correct a page was to mint a
+  // second one and leave the first behind under a link already handed out.
+  const replacing = typeof body.slug === "string" ? body.slug.trim() : "";
+  if (replacing) {
+    const set = { title, html, bytes, visibility, updatedAt: new Date() };
+    if (body.project) set.projectId = projectId;
+
+    const updated = await col.findOneAndUpdate(
+      { slug: replacing, userId },
+      { $set: set },
+      { returnDocument: "after", projection: { html: 0 } }
+    );
+    // Same answer whether the slug is unknown or someone else's.
+    if (!updated) {
+      return Response.json(
+        { error: `no artifact of yours has the slug: ${replacing}` },
+        { status: 404 }
+      );
+    }
+
+    const isPublic = updated.visibility === "public";
+    return Response.json(
+      {
+        slug: updated.slug,
+        url: `${origin}/a/${updated.slug}`,
+        updated: true,
+        visibility: updated.visibility,
+        isPublic,
+        note: noteFor(isPublic, origin),
+        manageUrl: `${origin}/`,
+      },
+      { status: 200 }
+    );
+  }
+
+  if ((await col.countDocuments({ userId })) >= MAX_PER_USER) {
+    return Response.json(
+      { error: `you have reached the limit of ${MAX_PER_USER} artifacts — delete some first` },
+      { status: 409 }
+    );
   }
 
   const slug = slugify(title, "artifact");
@@ -89,12 +145,23 @@ export async function POST(request) {
     html,
     projectId,
     userId,
-    // Private unless the owner shares it from the dashboard.
-    visibility: "private",
+    // Private unless the caller asked otherwise or shares it later.
+    visibility,
     bytes,
     createdAt: new Date(),
   });
 
-  const origin = new URL(request.url).origin;
-  return Response.json({ slug, url: `${origin}/a/${slug}` }, { status: 201 });
+  const isPublic = visibility === "public";
+  return Response.json(
+    {
+      slug,
+      url: `${origin}/a/${slug}`,
+      updated: false,
+      visibility,
+      isPublic,
+      note: noteFor(isPublic, origin),
+      manageUrl: `${origin}/`,
+    },
+    { status: 201 }
+  );
 }
