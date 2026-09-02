@@ -36,6 +36,19 @@ personal-artifact --token pa_...        # skip the browser
 personal-artifact --no-browser          # print the URL instead of opening it
 ```
 
+## Upgrading
+
+```
+npm install -g personal-artifact@latest
+```
+
+The skill is a copy in your agent's own directory, not a link into the
+package, so an upgrade would otherwise leave your agent reading the previous
+release's instructions — new commands installed, and nothing telling the agent
+they exist. Installing refreshes any copy this program wrote, and
+`artifact-publish` says so if it ever finds one that is out of date. Restart
+running agent sessions afterwards to pick up the new file.
+
 ## Uninstall
 
 ```

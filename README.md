@@ -146,12 +146,20 @@ lives in this repo, and no 2FA prompt has to be answered.
 
 ```
 cd cli
-npm version patch      # or minor / major — this commits and tags
-git push && git push --tags
+npm version patch      # or minor / major — bumps the file only
+cd .. && git commit -am "1.6.1" && git push
 ```
 
-The tag triggers `.github/workflows/publish.yml`, which refuses to publish if
-the tag and `cli/package.json` disagree.
+`npm version` looks for `.git` beside the package it is bumping, and this
+repo keeps it at the root — so it edits `cli/package.json` and stops there. The
+commit is yours to make.
+
+Pushing to `main` triggers `.github/workflows/publish.yml`, which publishes
+when `cli/package.json` names a version npm does not have yet, then tags the
+release itself. A push that changes nothing about the version publishes
+nothing and still passes — so a CLI change with no bump ships nowhere. Pushing
+a `v*` tag by hand still works, and is refused if it disagrees with
+`cli/package.json`.
 
 One-time setup on npmjs.com, under the package's **Settings → Trusted
 Publisher** (all fields are case-sensitive):

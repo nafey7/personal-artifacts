@@ -1,23 +1,12 @@
 #!/usr/bin/env node
 import { createInterface } from "readline/promises";
 import { stdin, stdout } from "process";
-import {
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  rmSync,
-  rmdirSync,
-  existsSync,
-  accessSync,
-  constants,
-} from "fs";
+import { readFileSync, writeFileSync, rmSync, rmdirSync, existsSync } from "fs";
 import { spawn, spawnSync } from "child_process";
 import { homedir, hostname, userInfo } from "os";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { join } from "path";
+import { CONFIG, SKILL_DIRS, detect, plan, writeSkill } from "./skills.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const CONFIG = join(homedir(), ".artifact-publish.json");
 const DEFAULT_SITE = "https://artifacts.pallason.com";
 
 const argv = process.argv.slice(2);
@@ -53,76 +42,6 @@ Safe to run again whenever you install another tool or rotate your token.
 The uninstall command undoes all of that in one go. It cannot revoke your token —
 that lives on the site, so revoke it at <site>/settings.`);
   process.exit(0);
-}
-
-/* ---------- which coding tools are actually here ---------- */
-
-// A tool counts as installed if it keeps a home directory or is on PATH. We
-// never create a vendor directory on spec: an empty ~/.claude on a machine
-// without Claude Code does nothing except get in the way of that tool's own
-// first run, and litters a home directory with tools its owner declined.
-function onPath(binary) {
-  for (const dir of (process.env.PATH || "").split(":")) {
-    if (!dir) continue;
-    try {
-      accessSync(join(dir, binary), constants.X_OK);
-      return true;
-    } catch {
-      // keep looking
-    }
-  }
-  return false;
-}
-
-const TOOLS = [
-  { name: "Claude Code", home: ".claude", binary: "claude", reads: "claude" },
-  { name: "Codex", home: ".codex", binary: "codex", reads: "agents" },
-  { name: "Gemini CLI", home: ".gemini", binary: "gemini", reads: "agents" },
-  { name: "Cursor", home: ".cursor", binary: "cursor", reads: "agents" },
-];
-
-function detect() {
-  return TOOLS.map((tool) => ({
-    ...tool,
-    installed: existsSync(join(homedir(), tool.home)) || onPath(tool.binary),
-  }));
-}
-
-/* ---------- writing the skill ---------- */
-
-// Two destinations cover all four tools. ~/.agents/skills is the vendor-neutral
-// convention that Codex, Gemini CLI and Cursor all read; Claude Code has its
-// own. The guidance is one file — only the description differs, because the
-// claude.ai caveat is noise everywhere else.
-const CLAUDE_CAVEAT =
-  " Not for claude.ai Artifacts (use the Artifact tool for those).";
-
-function skillFor(target) {
-  const source = readFileSync(join(HERE, "skill", "SKILL.md"), "utf8");
-  if (target !== "claude") return source;
-  return source.replace(
-    /^(description: .*)$/m,
-    (_match, line) => `${line}${CLAUDE_CAVEAT}`
-  );
-}
-
-function plan(tools) {
-  const wanted = [];
-  if (tools.some((t) => t.installed && t.reads === "agents")) {
-    wanted.push({
-      target: "agents",
-      dir: join(homedir(), ".agents", "skills", "personal-artifact"),
-      serves: tools.filter((t) => t.installed && t.reads === "agents").map((t) => t.name),
-    });
-  }
-  if (tools.some((t) => t.installed && t.reads === "claude")) {
-    wanted.push({
-      target: "claude",
-      dir: join(homedir(), ".claude", "skills", "personal-artifact"),
-      serves: ["Claude Code"],
-    });
-  }
-  return wanted;
 }
 
 /* ---------- signing in through the browser ---------- */
@@ -219,11 +138,7 @@ async function signInWithBrowser(site, { noBrowser }) {
 // both destinations regardless of which tools are installed now — a tool the
 // person has since deleted still left its skill behind.
 function installedPaths() {
-  return [
-    CONFIG,
-    join(homedir(), ".claude", "skills", "personal-artifact"),
-    join(homedir(), ".agents", "skills", "personal-artifact"),
-  ];
+  return [CONFIG, SKILL_DIRS.claude, SKILL_DIRS.agents];
 }
 
 // Install creates ~/.agents/skills on demand, so uninstall takes it back out —
@@ -402,10 +317,7 @@ async function main() {
     }
 
     writeFileSync(CONFIG, `${JSON.stringify({ site, token }, null, 2)}\n`, { mode: 0o600 });
-    for (const t of targets) {
-      mkdirSync(t.dir, { recursive: true });
-      writeFileSync(join(t.dir, "SKILL.md"), skillFor(t.target));
-    }
+    for (const t of targets) writeSkill(t);
 
     console.log("\nDone.");
     if (targets.length) {

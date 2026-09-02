@@ -1,6 +1,6 @@
 {
   "name": "personal-artifact",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Publish self-contained HTML artifacts to your own private site from any coding agent.",
   "type": "module",
   "bin": {
@@ -10,6 +10,8 @@
   "files": [
     "init.js",
     "publish.js",
+    "skills.js",
+    "postinstall.js",
     "skill/SKILL.md",
     "README.md",
     "LICENSE"
@@ -38,5 +40,8 @@
   },
   "bugs": {
     "url": "https://github.com/nafey7/personal-artifacts/issues"
+  },
+  "scripts": {
+    "postinstall": "node ./postinstall.js"
   }
 }

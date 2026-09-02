@@ -2,6 +2,7 @@
 import { readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join, basename } from "path";
+import { VERSION, staleSkills } from "./skills.js";
 
 const argv = process.argv.slice(2);
 
@@ -123,6 +124,24 @@ for (let i = 0; i < argv.length; i++) {
 if (createProject && !project) {
   console.error("--new-project needs a name");
   process.exit(1);
+}
+
+/* ---------- is the agent reading an old copy of the skill? ---------- */
+
+// The skill is a copy, so an upgrade can leave an agent following last
+// release's instructions. postinstall refreshes it, but --ignore-scripts and
+// some CI images skip that, and the failure is otherwise silent.
+try {
+  const stale = staleSkills();
+  if (stale.length) {
+    const seen = stale[0].version;
+    console.error(
+      `note: the installed skill is ${seen ? `v${seen}` : "from an older release"}, but this CLI is v${VERSION} —\n` +
+        "      run `personal-artifact` to refresh it, or your agent will not know about newer commands."
+    );
+  }
+} catch {
+  // Never let this stop a publish.
 }
 
 /* ---------- config and the API ---------- */
