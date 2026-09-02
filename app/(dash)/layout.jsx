@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
-import { loadProjects } from "@/lib/data";
+import { countTrash, loadProjects } from "@/lib/data";
 import Sidebar from "./Sidebar";
 
 export const dynamic = "force-dynamic";
@@ -11,11 +11,14 @@ export default async function DashboardLayout({ children }) {
   const user = await currentUser();
   if (!user) redirect("/signin");
 
-  const { projects, unfiled, total } = await loadProjects(user.id);
+  const [{ projects, total }, trash] = await Promise.all([
+    loadProjects(user.id),
+    countTrash(user.id),
+  ]);
 
   return (
     <div className="dash">
-      <Sidebar projects={projects} unfiled={unfiled} total={total} user={user} />
+      <Sidebar projects={projects} total={total} trash={trash} user={user} />
       <main className="main">{children}</main>
     </div>
   );

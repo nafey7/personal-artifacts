@@ -242,7 +242,9 @@ function serve(doc) {
 export async function GET(request, { params }) {
   const { slug } = await params;
   const col = await artifacts();
-  const doc = await col.findOne({ slug });
+  // A trashed artifact does not open for anyone, its owner included: deleting
+  // is how a link handed out by mistake gets closed.
+  const doc = await col.findOne({ slug, deletedAt: null });
   if (!doc) return notFound(request);
 
   const now = new Date();
@@ -273,7 +275,7 @@ export async function GET(request, { params }) {
 export async function POST(request, { params }) {
   const { slug } = await params;
   const col = await artifacts();
-  const doc = await col.findOne({ slug });
+  const doc = await col.findOne({ slug, deletedAt: null });
   if (!doc || doc.visibility !== "public") return notFound(request);
 
   const now = new Date();

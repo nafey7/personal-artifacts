@@ -33,6 +33,7 @@ export default async function Settings() {
         bytes={usage.bytes}
         maxCount={MAX_PER_USER}
         maxBytes={MAX_BYTES}
+        trashed={usage.trashed}
       />
       <h2 className="settingshead">API tokens</h2>
       <p className="settingslede">

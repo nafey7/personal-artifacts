@@ -2,6 +2,7 @@ import { artifacts } from "@/lib/mongo";
 import { requireUser } from "@/lib/guard";
 import { loadProjects } from "@/lib/data";
 import { createProject } from "@/lib/projects";
+import { LIVE } from "@/lib/trash";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,11 @@ export async function POST(request) {
   const { project } = created;
   // Report the count so the freshly created project renders like the rest.
   const art = await artifacts();
-  const count = await art.countDocuments({ projectId: project._id.toString(), userId: user.id });
+  const count = await art.countDocuments({
+    projectId: project._id.toString(),
+    userId: user.id,
+    ...LIVE,
+  });
 
   return Response.json(
     { project: { id: project._id.toString(), name: project.name, slug: project.slug, count } },

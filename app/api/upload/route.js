@@ -6,6 +6,7 @@ import { MAX_BYTES, MAX_PER_USER } from "@/lib/limits";
 import { hashPassword } from "@/lib/auth";
 import { readExpiry, readPassphrase, shareSummary } from "@/lib/share";
 import { stamp } from "@/lib/data";
+import { LIVE } from "@/lib/trash";
 
 export const dynamic = "force-dynamic";
 
@@ -169,12 +170,26 @@ export async function POST(request) {
     }
 
     const updated = await col.findOneAndUpdate(
-      { slug: replacing, userId },
+      { slug: replacing, userId, ...LIVE },
       { $set: set },
       { returnDocument: "after", projection: { html: 0 } }
     );
-    // Same answer whether the slug is unknown or someone else's.
+    // Same answer whether the slug is unknown or someone else's. A slug of
+    // the caller's own that is sitting in the trash says so instead: quietly
+    // republishing into it would resurrect a page they deleted.
     if (!updated) {
+      const trashed = await col.findOne(
+        { slug: replacing, userId, deletedAt: { $ne: null } },
+        { projection: { _id: 1 } }
+      );
+      if (trashed) {
+        return Response.json(
+          {
+            error: `that artifact is in the trash — restore it at ${origin}/trash first, or publish without --update to mint a new one`,
+          },
+          { status: 409 }
+        );
+      }
       return Response.json(
         { error: `no artifact of yours has the slug: ${replacing}` },
         { status: 404 }
@@ -188,7 +203,10 @@ export async function POST(request) {
     });
   }
 
-  if ((await col.countDocuments({ userId })) >= MAX_PER_USER) {
+  // The cap counts live artifacts only; what is in the trash is on its way
+  // out and shouldn't block a publish, though it does still take up space
+  // until the sweep removes it.
+  if ((await col.countDocuments({ userId, ...LIVE })) >= MAX_PER_USER) {
     return Response.json(
       { error: `you have reached the limit of ${MAX_PER_USER} artifacts — delete some first` },
       { status: 409 }
@@ -207,6 +225,9 @@ export async function POST(request) {
     shareExpiresAt,
     sharePassHash,
     bytes,
+    // Set from the start so the TTL index has a field to look at, and every
+    // read filter matches without a special case for older documents.
+    deletedAt: null,
     createdAt: new Date(),
   };
   await col.insertOne(doc);

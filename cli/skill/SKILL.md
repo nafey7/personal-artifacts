@@ -138,6 +138,40 @@ plausible match, ask which one rather than guessing.
 Behind the CLI these are `GET /api/projects`, `GET /api/artifacts` and
 `GET /api/artifacts/<slug>`, all taking the same `Authorization: Bearer` token.
 
+## Renaming and deleting
+
+```
+artifact-publish rename <slug> "New title"
+artifact-publish delete <slug>                     # to the trash, restorable
+artifact-publish trash                             # what is in the trash
+artifact-publish restore <slug>
+artifact-publish delete <slug> --permanent         # only works on a trashed one
+```
+
+`rename` changes the listing title only; to change the page itself, publish
+over it with `--update <slug>`.
+
+**The user will name these by subject, not by slug** — "delete the artifact
+about React interview questions", "delete the one you made this session".
+Turn a description into a slug yourself, and never delete on a guess:
+
+1. If you published it in this conversation, you already have the slug. Use it.
+2. Otherwise run `artifact-publish list --search <a word from what they said>
+   --json`. Widen to a plain `list` if that finds nothing.
+3. **No match** → say so and stop. Do not delete the nearest thing.
+4. **More than one match** → show the titles and URLs and ask which one.
+5. **Exactly one match** → name it back to them with its URL and confirm
+   before deleting, unless they already named that exact artifact or slug.
+
+Deleting is a soft delete, so a mistake is recoverable — say that in your
+confirmation ("it goes to the trash, restorable for a few days"). Never pass
+`--permanent` unless the user asks for the artifact to be gone for good, and
+confirm that one every time: it cannot be undone.
+
+The same find-then-confirm rule applies to `rename` and to publishing over
+something with `--update` — anything that changes an artifact that already
+exists.
+
 ## Privacy
 
 New artifacts are private. The URL you get back returns **404** to any request
@@ -184,8 +218,14 @@ If `artifact-publish` fails — meaning the command itself exits non-zero:
 - `400` naming an `unknown project` → the name doesn't match any of their
   folders; the message lists the ones that exist. Use one of those, or
   `--new-project` if a new folder was the intent.
-- `404` on `--update` or `get` → that slug isn't one of theirs; run
-  `artifact-publish list` to find the right one, or publish fresh.
+- `404` on `--update`, `get`, `rename` or `delete` → that slug isn't one of
+  theirs; run `artifact-publish list` to find the right one, or publish fresh.
+- `409 already in the trash` → they deleted it before; `artifact-publish
+  restore <slug>` brings it back.
+- `409 not in the trash` on `--permanent` → it is still live. Delete it first,
+  which is almost always what they meant anyway.
+- `409 in the trash — restore it first` on `rename` or a share change → the
+  artifact is deleted; restore it before changing it.
 - `413` → the page is over 2MB; inline less and link large media.
 - `500` → a problem on the site's side, not with the HTML. Retry; if it
   persists, the site itself needs attention.

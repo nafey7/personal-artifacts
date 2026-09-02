@@ -109,7 +109,6 @@ export default function ArtifactList({ items, projects, showProject = true }) {
             <div className={`row${pending === d.id ? " is-pending" : ""}`} key={d.id}>
               <a className="rowmain" href={`/a/${d.slug}`}>
                 <span className="title">{d.title}</span>
-                <span className="slug">/a/{d.slug}</span>
               </a>
 
               <time dateTime={d.iso}>{d.stamp}</time>
@@ -155,7 +154,7 @@ export default function ArtifactList({ items, projects, showProject = true }) {
                 disabled={pending === d.id}
                 onClick={() => { setConfirming(d); setError(""); }}
                 aria-label={`Delete ${d.title}`}
-                title="Delete artifact"
+                title="Move to trash"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
@@ -186,12 +185,12 @@ export default function ArtifactList({ items, projects, showProject = true }) {
       {confirming && (
         <Confirm
           title={`Delete “${confirming.title}”?`}
-          body={`This permanently removes the artifact${
+          body={`This moves the artifact${
             confirming.projectId && names.has(confirming.projectId)
-              ? ` from ${names.get(confirming.projectId)}`
+              ? ` out of ${names.get(confirming.projectId)}`
               : ""
-          }. The link /a/${confirming.slug} will stop working. This cannot be undone.`}
-          confirmLabel="Delete artifact"
+          } to the trash. The link /a/${confirming.slug} stops working right away; you can restore it from the trash for the next few days, after which it goes for good.`}
+          confirmLabel="Move to trash"
           pending={pending === confirming.id}
           onCancel={() => setConfirming(null)}
           onConfirm={async () => {

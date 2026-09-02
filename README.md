@@ -4,7 +4,14 @@ Tiny Next.js app for publishing self-contained HTML artifacts. Free end to end:
 Vercel Hobby + MongoDB Atlas M0.
 
 Artifacts can be filed into projects. A project is just a folder; deleting one
-also deletes every artifact inside it.
+moves every artifact inside it to the trash.
+
+Deleting an artifact moves it to the trash rather than removing it. Its `/a/`
+link stops opening straight away, and it disappears from every listing, but the
+page itself is kept for seven days (`TRASH_RETENTION_DAYS`) so a mistake costs
+nothing. A MongoDB TTL index on `deletedAt` removes it when the window is up.
+Nothing else destroys an artifact: only "Delete for good" or "Empty trash" on
+`/trash` does, and both refuse to touch anything that is not already there.
 
 The dashboard is behind a login. See [docs/accounts.md](docs/accounts.md) for
 the account model and the phases still to come.
@@ -12,7 +19,8 @@ the account model and the phases still to come.
 - `GET /signin`, `GET /signup` — account screens
 - `POST /api/auth/signin|signup|signout` — `{ email, password, name?, code? }`
 - `GET /` — dashboard, all artifacts newest first
-- `GET /unfiled` — artifacts that belong to no project
+- `GET /trash` — deleted artifacts, with the days each has left; restore one, or
+  delete it for good
 - `GET /p/[slug]` — one project's artifacts
 - `GET /a/[slug]` — the artifact, rendered inside a sandboxed iframe. Private by
   default: the owner's session or their `Authorization: Bearer <API token>` gets
@@ -33,17 +41,23 @@ the account model and the phases still to come.
   in place rather than minting a new one). The response carries `url`,
   `project`, `visibility` and a plain-language `note` saying who can open it.
 - `GET /api/artifacts` — your artifacts without their HTML, newest first.
-  `?project=<id|slug|name>` (or `unfiled`), `?q=<title text>`, `?limit=<n>`.
-  Session or API token.
+  `?project=<id|slug|name>` (or `unfiled`), `?q=<title text>`, `?limit=<n>`,
+  `?trashed=1` for the trash instead. Session or API token.
 - `GET /api/artifacts/[id-or-slug]` — one artifact with its `html`;
   `?format=html` returns the HTML alone as `text/plain`. Session or API token.
+- `GET /api/trash` — what is in the trash, with `daysLeft` and `retentionDays`
+  (session or API token); `DELETE /api/trash` empties it for good (session)
 - `GET /api/me` — the token's owner, used by `personal-artifact` to validate a token
 - `POST /api/cli/start|poll` — browser sign-in for the CLI; `POST /api/cli/approve` (session required)
 - `GET /cli/auth?code=` — the page where a machine is approved
 - `GET|POST /api/tokens`, `DELETE /api/tokens/[id]` — issue, list, revoke (session required)
 - `GET|POST /api/projects` — list (with counts) / create, body `{ name }` (session or API token)
-- `PATCH|DELETE /api/projects/[id]` — rename (`{ name }`) / delete with its artifacts (session required)
-- `PATCH|DELETE /api/artifacts/[id]` — edit (`{ title?, projectId?, visibility?, expiresIn?, expiresAt?, passphrase? }`) / delete (session required).
+- `PATCH|DELETE /api/projects/[id]` — rename (`{ name }`) / delete, trashing its artifacts (session required)
+- `PATCH|DELETE /api/artifacts/[id]` — edit (`{ title?, projectId?, visibility?, expiresIn?, expiresAt?, passphrase? }`) / move to the trash (session required).
+  `{ restore: true }` is the one edit a trashed artifact accepts — it lifts it
+  back out, Unfiled if the project it was in has since been deleted; every
+  other edit on one is a 409. `DELETE ...?permanent=1` removes it outright, and
+  only works on something already in the trash.
   `expiresIn` is a duration (`30m`, `24h`, `7d`, `2w`) or `null`; `expiresAt`
   an ISO instant or `null`; `passphrase` a string of 4–200 characters or `null`
   to remove it. Setting either implies `visibility: "public"`; setting

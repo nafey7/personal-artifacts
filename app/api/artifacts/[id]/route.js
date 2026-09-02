@@ -2,8 +2,19 @@ import { artifacts, projects, toObjectId } from "@/lib/mongo";
 import { requireUser } from "@/lib/guard";
 import { hashPassword } from "@/lib/auth";
 import { readExpiry, readPassphrase, shareSummary } from "@/lib/share";
+import { TRASH_DAYS, trashSummary } from "@/lib/trash";
 
 export const dynamic = "force-dynamic";
+
+// The path segment is a slug or an id — the CLI knows slugs, the dashboard
+// ids — and either way it only ever matches the caller's own artifacts.
+function ownedBy(user, key) {
+  const _id = toObjectId(key);
+  return {
+    userId: user.id,
+    $or: _id ? [{ _id }, { slug: key }] : [{ slug: key }],
+  };
+}
 
 // Reads one artifact back, HTML included. Session or API token. The path
 // segment is a slug or an id — the CLI hands out slugs, the dashboard ids.
@@ -17,13 +28,8 @@ export async function GET(request, { params }) {
   if (response) return response;
 
   const { id } = await params;
-  const key = String(id).trim();
-  const _id = toObjectId(key);
   const col = await artifacts();
-  const doc = await col.findOne({
-    userId: user.id,
-    $or: _id ? [{ _id }, { slug: key }] : [{ slug: key }],
-  });
+  const doc = await col.findOne(ownedBy(user, String(id).trim()));
   // Same answer whether the slug is unknown or someone else's.
   if (!doc) return Response.json({ error: "not found" }, { status: 404 });
 
@@ -61,6 +67,9 @@ export async function GET(request, { params }) {
         visibility: doc.visibility === "public" ? "public" : "private",
         // isPublic, expiresAt, isExpired, hasPassphrase — never the hash.
         ...shareSummary(doc),
+        // A trashed artifact still reads back for its owner — that is what
+        // makes "restore it or copy it out" possible — but it says so.
+        ...trashSummary(doc),
         bytes: doc.bytes ?? Buffer.byteLength(doc.html, "utf8"),
         createdAt: new Date(doc.createdAt).toISOString(),
         updatedAt: new Date(doc.updatedAt || doc.createdAt).toISOString(),
@@ -72,18 +81,68 @@ export async function GET(request, { params }) {
 }
 
 export async function PATCH(request, { params }) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (response) return response;
 
   const { id } = await params;
-  const _id = toObjectId(id);
-  if (!_id) return Response.json({ error: "not found" }, { status: 404 });
+  const filter = ownedBy(user, String(id).trim());
 
   let body;
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+
+  const col = await artifacts();
+  const existing = await col.findOne(filter, { projection: { html: 0 } });
+  if (!existing) return Response.json({ error: "not found" }, { status: 404 });
+
+  // Lifting an artifact back out of the trash. On its own — everything else
+  // in the body is ignored — so a restore can never also change what is being
+  // restored. The project it was filed under may have been deleted meanwhile;
+  // it comes back Unfiled in that case rather than into a folder that is gone.
+  if (body.restore === true) {
+    if (!existing.deletedAt) {
+      return Response.json({ error: "that artifact is not in the trash" }, { status: 409 });
+    }
+    const stillThere =
+      existing.projectId &&
+      (await (await projects()).findOne({
+        _id: toObjectId(existing.projectId),
+        userId: user.id,
+      }));
+
+    const restored = await col.findOneAndUpdate(
+      filter,
+      {
+        $set: {
+          deletedAt: null,
+          projectId: stillThere ? existing.projectId : null,
+          updatedAt: new Date(),
+        },
+      },
+      { returnDocument: "after", projection: { html: 0 } }
+    );
+    return Response.json({
+      restored: true,
+      artifact: {
+        id: restored._id.toString(),
+        slug: restored.slug,
+        title: restored.title,
+        projectId: restored.projectId ?? null,
+        ...shareSummary(restored),
+      },
+    });
+  }
+
+  // Anything else has to wait until it is out of the trash: a page nobody can
+  // open should not be quietly re-shared or re-filed.
+  if (existing.deletedAt) {
+    return Response.json(
+      { error: "that artifact is in the trash — restore it first" },
+      { status: 409 }
+    );
   }
 
   const set = {};
@@ -153,9 +212,8 @@ export async function PATCH(request, { params }) {
     return Response.json({ error: "nothing to update" }, { status: 400 });
   }
 
-  const col = await artifacts();
   const result = await col.findOneAndUpdate(
-    { _id, userId: user.id },
+    { ...filter, deletedAt: null },
     { $set: { ...set, updatedAt: new Date() } },
     { returnDocument: "after", projection: { html: 0 } }
   );
@@ -172,17 +230,58 @@ export async function PATCH(request, { params }) {
   });
 }
 
-export async function DELETE(_request, { params }) {
-  const { user, response } = await requireUser();
+// Deleting moves the artifact to the trash, where it sits for TRASH_DAYS
+// before Mongo removes it. The link stops opening straight away, so a page
+// shared by mistake is closed the moment the owner asks — the recovery window
+// is for the owner, not for whoever held the link.
+//
+// `?permanent=1` removes it outright, and only works on something already in
+// the trash: the one-click path can never destroy anything.
+export async function DELETE(request, { params }) {
+  const { user, response } = await requireUser(request);
   if (response) return response;
 
   const { id } = await params;
-  const _id = toObjectId(id);
-  if (!_id) return Response.json({ error: "not found" }, { status: 404 });
+  const filter = ownedBy(user, String(id).trim());
 
+  const permanent = ["1", "true", "yes"].includes(
+    (new URL(request.url).searchParams.get("permanent") || "").toLowerCase()
+  );
   const col = await artifacts();
-  const { deletedCount } = await col.deleteOne({ _id, userId: user.id });
-  if (!deletedCount) return Response.json({ error: "not found" }, { status: 404 });
 
-  return Response.json({ deleted: true });
+  if (permanent) {
+    const { deletedCount } = await col.deleteOne({ ...filter, deletedAt: { $ne: null } });
+    if (!deletedCount) {
+      // Either it is not theirs, or it is still live — say which, since the
+      // caller owning it is already established by the softer branch below.
+      const live = await col.findOne(filter, { projection: { _id: 1 } });
+      if (live) {
+        return Response.json(
+          { error: "that artifact is not in the trash — delete it first" },
+          { status: 409 }
+        );
+      }
+      return Response.json({ error: "not found" }, { status: 404 });
+    }
+    return Response.json({ deleted: true, permanent: true });
+  }
+
+  const deletedAt = new Date();
+  const result = await col.findOneAndUpdate(
+    { ...filter, deletedAt: null },
+    { $set: { deletedAt } },
+    { returnDocument: "after", projection: { html: 0 } }
+  );
+  if (!result) {
+    const already = await col.findOne(filter, { projection: { deletedAt: 1 } });
+    if (already) return Response.json({ error: "already in the trash" }, { status: 409 });
+    return Response.json({ error: "not found" }, { status: 404 });
+  }
+
+  return Response.json({
+    deleted: true,
+    artifact: { id: result._id.toString(), slug: result.slug, title: result.title },
+    ...trashSummary(result),
+    note: `moved to the trash — restore it within ${TRASH_DAYS} days at /trash, after which it is removed for good`,
+  });
 }

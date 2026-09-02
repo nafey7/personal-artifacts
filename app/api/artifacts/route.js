@@ -2,6 +2,7 @@ import { artifacts } from "@/lib/mongo";
 import { requireUser } from "@/lib/guard";
 import { findProject, listProjects } from "@/lib/projects";
 import { shareSummary } from "@/lib/share";
+import { LIVE, TRASHED, trashSummary } from "@/lib/trash";
 
 export const dynamic = "force-dynamic";
 
@@ -20,12 +21,18 @@ function escapeRegex(text) {
 //                             artifacts that belong to no project
 //   ?q=<text>                 case-insensitive title match
 //   ?limit=<n>                default 100, at most 500
+//   ?trashed=1                the trash instead: deleted artifacts still
+//                             inside their recovery window
 export async function GET(request) {
   const { user, response } = await requireUser(request);
   if (response) return response;
 
   const url = new URL(request.url);
-  const filter = { userId: user.id };
+  // Deleted artifacts are in the trash, not in the list, unless asked for.
+  const wantTrash = ["1", "true", "yes"].includes(
+    (url.searchParams.get("trashed") || "").toLowerCase()
+  );
+  const filter = { userId: user.id, ...(wantTrash ? TRASHED : LIVE) };
 
   const projectKey = (url.searchParams.get("project") || "").trim();
   if (projectKey === "unfiled") {
@@ -52,7 +59,7 @@ export async function GET(request) {
   const [docs, projectDocs] = await Promise.all([
     (await artifacts())
       .find(filter, { projection: { html: 0 } })
-      .sort({ createdAt: -1 })
+      .sort(wantTrash ? { deletedAt: -1 } : { createdAt: -1 })
       .limit(limit)
       .toArray(),
     listProjects(user.id),
@@ -74,6 +81,7 @@ export async function GET(request) {
         visibility: d.visibility === "public" ? "public" : "private",
         // isPublic, expiresAt, isExpired, hasPassphrase — never the hash.
         ...shareSummary(d, now),
+        ...trashSummary(d, now),
         bytes: d.bytes ?? null,
         createdAt: new Date(d.createdAt).toISOString(),
         updatedAt: new Date(d.updatedAt || d.createdAt).toISOString(),

@@ -1,5 +1,6 @@
 import { artifacts, projects, toObjectId } from "@/lib/mongo";
 import { requireUser } from "@/lib/guard";
+import { LIVE, TRASH_DAYS } from "@/lib/trash";
 
 export const dynamic = "force-dynamic";
 
@@ -56,14 +57,23 @@ export async function DELETE(_request, { params }) {
   const project = await col.findOne({ _id, userId: user.id });
   if (!project) return Response.json({ error: "not found" }, { status: 404 });
 
-  // Deleting a project takes its artifacts with it. Remove the artifacts first
-  // so a failure part-way through can't orphan them behind a missing project.
+  // Deleting a project takes its artifacts with it — into the trash, not out
+  // of existence, so a folder deleted by mistake costs nothing for the next
+  // TRASH_DAYS. They are moved first so a failure part-way through can't
+  // orphan them behind a missing project. The projectId goes with the folder;
+  // restoring one puts it back Unfiled.
   const art = await artifacts();
-  const { deletedCount } = await art.deleteMany({
-    projectId: _id.toString(),
-    userId: user.id,
-  });
+  const { modifiedCount } = await art.updateMany(
+    { projectId: _id.toString(), userId: user.id, ...LIVE },
+    { $set: { deletedAt: new Date(), projectId: null } }
+  );
   await col.deleteOne({ _id, userId: user.id });
 
-  return Response.json({ deleted: { project: project.name, artifacts: deletedCount } });
+  return Response.json({
+    deleted: { project: project.name, artifacts: modifiedCount },
+    trashed: modifiedCount,
+    note: modifiedCount
+      ? `${modifiedCount} artifact${modifiedCount === 1 ? "" : "s"} moved to the trash — restore within ${TRASH_DAYS} days`
+      : undefined,
+  });
 }

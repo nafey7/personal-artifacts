@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Confirm from "./Confirm";
 
 function Icon({ name }) {
@@ -19,10 +19,10 @@ function Icon({ name }) {
       </svg>
     );
   }
-  if (name === "unfiled") {
+  if (name === "trash") {
     return (
       <svg {...props}>
-        <path d="M4 7h6l2 2h8v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z" strokeDasharray="3 2.5" />
+        <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
       </svg>
     );
   }
@@ -33,7 +33,7 @@ function Icon({ name }) {
   );
 }
 
-export default function Sidebar({ projects, unfiled, total, user }) {
+export default function Sidebar({ projects, total, trash, user }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -46,6 +46,25 @@ export default function Sidebar({ projects, unfiled, total, user }) {
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(null); // project pending deletion
   const [signingOut, setSigningOut] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const accountRef = useRef(null);
+
+  // The account menu is a popup: a click anywhere else, or Escape, closes it.
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointer(e) {
+      if (!accountRef.current?.contains(e.target)) setMenuOpen(false);
+    }
+    function onKey(e) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   async function signOut() {
     setSigningOut(true);
@@ -152,16 +171,6 @@ export default function Sidebar({ projects, unfiled, total, user }) {
                   <span className="count">{total}</span>
                 </Link>
               </li>
-              <li>
-                <Link
-                  href="/unfiled"
-                  className={`navitem${pathname === "/unfiled" ? " is-active" : ""}`}
-                >
-                  <Icon name="unfiled" />
-                  <span className="label">Unfiled</span>
-                  <span className="count">{unfiled}</span>
-                </Link>
-              </li>
             </ul>
 
             <p className="navlabel">
@@ -251,28 +260,72 @@ export default function Sidebar({ projects, unfiled, total, user }) {
                 )
               )}
             </ul>
+
+            <ul className="navlist navlist-tail">
+              <li>
+                <Link
+                  href="/trash"
+                  className={`navitem${pathname === "/trash" ? " is-active" : ""}`}
+                >
+                  <Icon name="trash" />
+                  <span className="label">Trash</span>
+                  <span className="count">{trash}</span>
+                </Link>
+              </li>
+            </ul>
           </nav>
 
           {error && <p className="naverror" role="alert">{error}</p>}
 
           <div className="sidefoot">
-            <code>publish page.html</code>
-            <Link
-              href="/settings"
-              className={`navitem settingslink${pathname === "/settings" ? " is-active" : ""}`}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 5 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9.5a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
-              </svg>
-              <span className="label">API tokens</span>
-            </Link>
-
             {user && (
-              <div className="account">
-                <span className="who" title={user.email}>{user.name || user.email}</span>
-                <button type="button" onClick={signOut} disabled={signingOut}>
-                  {signingOut ? "…" : "Sign out"}
+              <div className={`account${menuOpen ? " is-open" : ""}`} ref={accountRef}>
+                {menuOpen && (
+                  <div className="accountmenu" role="menu">
+                    <p className="accountmail" title={user.email}>{user.email}</p>
+                    <Link
+                      href="/settings"
+                      role="menuitem"
+                      className={`accountitem${pathname === "/settings" ? " is-active" : ""}`}
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 5 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9.5a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+                      </svg>
+                      <span className="label">Settings</span>
+                    </Link>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="accountitem"
+                      onClick={signOut}
+                      disabled={signingOut}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M15 17l5-5-5-5" />
+                        <path d="M20 12H9" />
+                        <path d="M12 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6" />
+                      </svg>
+                      <span className="label">{signingOut ? "Signing out…" : "Sign out"}</span>
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="accountbtn"
+                  onClick={() => setMenuOpen((v) => !v)}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                >
+                  <span className="avatar" aria-hidden="true">
+                    {(user.name || user.email || "?").trim().charAt(0).toUpperCase()}
+                  </span>
+                  <span className="who" title={user.email}>{user.name || user.email}</span>
+                  <svg className="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M6 15l6-6 6 6" />
+                  </svg>
                 </button>
               </div>
             )}
@@ -285,12 +338,14 @@ export default function Sidebar({ projects, unfiled, total, user }) {
           title={`Delete “${confirming.name}”?`}
           body={
             confirming.count > 0
-              ? `This permanently deletes the project and all ${confirming.count} artifact${
+              ? `The project goes for good; the ${confirming.count} artifact${
                   confirming.count === 1 ? "" : "s"
-                } inside it. Their /a/ links will stop working. This cannot be undone.`
+                } inside move to the trash, where you can restore ${
+                  confirming.count === 1 ? "it" : "them"
+                } for the next few days. Their /a/ links stop working now.`
               : "This project is empty. Deleting it cannot be undone."
           }
-          confirmLabel={confirming.count > 0 ? `Delete project and ${confirming.count} artifact${confirming.count === 1 ? "" : "s"}` : "Delete project"}
+          confirmLabel={confirming.count > 0 ? `Delete project and trash ${confirming.count} artifact${confirming.count === 1 ? "" : "s"}` : "Delete project"}
           requireText={confirming.count > 0 ? confirming.name : null}
           pending={pending}
           onCancel={() => setConfirming(null)}

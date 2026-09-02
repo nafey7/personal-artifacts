@@ -32,6 +32,18 @@ Read back what you have published:
   artifact-publish get <slug> [--out <file>] [--json]
   artifact-publish projects [--json]
 
+Change or remove what you have published:
+
+  artifact-publish rename <slug> "New title"
+  artifact-publish delete <slug> [--permanent]
+  artifact-publish trash [--json]
+  artifact-publish restore <slug>
+
+\`delete\` moves the artifact to the trash: its link stops opening straight
+away, and \`restore\` brings it back for a few days afterwards. \`--permanent\`
+removes something already in the trash, for good. To change an artifact's
+HTML, publish over it with --update <slug> instead.
+
 \`list\` prints one artifact per line: slug, updated date, who can open it,
 project, title. \`get\` prints the artifact's HTML (or writes it to --out) so
 you can edit it and publish it back with --update. \`projects\` lists your
@@ -55,6 +67,7 @@ let passphrase = process.env.ARTIFACT_PASSPHRASE || "";
 let search = "";
 let limit = "";
 let outFile = "";
+let permanent = false;
 let json = false;
 const positional = [];
 
@@ -98,6 +111,8 @@ for (let i = 0; i < argv.length; i++) {
     outFile = argv[++i] || "";
   } else if (arg.startsWith("--out=")) {
     outFile = arg.slice("--out=".length);
+  } else if (arg === "--permanent") {
+    permanent = true;
   } else if (arg === "--json") {
     json = true;
   } else {
@@ -246,13 +261,113 @@ if (command === "get") {
   process.exit(0);
 }
 
+
+// Deleting moves the artifact to the trash — the link stops opening at once,
+// but it can be restored for a few days. That is what makes it safe for an
+// agent to run on the user's word: the wrong page is recoverable.
+if (command === "delete" || command === "rm") {
+  const slug = positional[1];
+  if (!slug) {
+    console.error("usage: artifact-publish delete <slug> [--permanent]");
+    console.error("run `artifact-publish list --search <text>` to find the slug");
+    process.exit(1);
+  }
+  const data = await api(
+    `/api/artifacts/${encodeURIComponent(slug)}${permanent ? "?permanent=1" : ""}`,
+    { method: "DELETE", verb: "deleting artifact" }
+  );
+  if (json) {
+    console.log(JSON.stringify(data, null, 2));
+    process.exit(0);
+  }
+  const name = data.artifact ? `${data.artifact.title} (${data.artifact.slug})` : slug;
+  if (data.permanent) {
+    console.log(`deleted for good: ${name}`);
+  } else {
+    console.log(`moved to the trash: ${name}`);
+    console.error(
+      `restore it with \`artifact-publish restore ${data.artifact?.slug || slug}\`` +
+        (data.daysLeft ? ` within ${data.daysLeft} day${data.daysLeft === 1 ? "" : "s"}` : "")
+    );
+  }
+  process.exit(0);
+}
+
+// What is in the trash. `list` never shows these, so this is the only way to
+// find the slug of something already deleted.
+if (command === "trash") {
+  const data = await api(`/api/trash`, { verb: "listing the trash" });
+  if (json) {
+    console.log(JSON.stringify(data, null, 2));
+  } else if (!data.artifacts.length) {
+    console.error("the trash is empty");
+  } else {
+    const slugWidth = Math.max(...data.artifacts.map((a) => a.slug.length));
+    for (const a of data.artifacts) {
+      console.log(
+        [
+          a.slug.padEnd(slugWidth),
+          day(a.deletedAt),
+          `${a.daysLeft}d left`.padEnd(9),
+          a.title,
+        ].join("  ")
+      );
+    }
+  }
+  process.exit(0);
+}
+
+if (command === "restore") {
+  const slug = positional[1];
+  if (!slug) {
+    console.error("usage: artifact-publish restore <slug>");
+    console.error("run `artifact-publish trash` to see what is in there");
+    process.exit(1);
+  }
+  const data = await api(`/api/artifacts/${encodeURIComponent(slug)}`, {
+    method: "PATCH",
+    body: { restore: true },
+    verb: "restoring artifact",
+  });
+  if (json) {
+    console.log(JSON.stringify(data, null, 2));
+  } else {
+    console.log(`${site}/a/${data.artifact.slug}`);
+    console.error(`restored: ${data.artifact.title}`);
+  }
+  process.exit(0);
+}
+
+// Retitling only. The HTML behind an artifact is replaced by publishing over
+// it with --update, which keeps the same URL.
+if (command === "rename") {
+  const [, slug, ...titleParts] = positional;
+  const title = titleParts.join(" ").trim();
+  if (!slug || !title) {
+    console.error('usage: artifact-publish rename <slug> "New title"');
+    process.exit(1);
+  }
+  const data = await api(`/api/artifacts/${encodeURIComponent(slug)}`, {
+    method: "PATCH",
+    body: { title },
+    verb: "renaming artifact",
+  });
+  if (json) {
+    console.log(JSON.stringify(data, null, 2));
+  } else {
+    console.log(`${site}/a/${data.artifact.slug}`);
+    console.error(`renamed to: ${data.artifact.title}`);
+  }
+  process.exit(0);
+}
+
 /* ---------- publish ---------- */
 
 const [file, ...rest] = positional;
 if (!file) {
   console.error(
     'usage: artifact-publish ./artifact.html "Title" [--project "Folder" | --new-project "Folder"] [--public] [--expires 7d] [--passphrase <text>] [--update <slug>]\n' +
-      "       artifact-publish list | get <slug> | projects"
+      "       artifact-publish list | get <slug> | projects | rename <slug> <title> | delete <slug> | trash | restore <slug>"
   );
   process.exit(1);
 }
