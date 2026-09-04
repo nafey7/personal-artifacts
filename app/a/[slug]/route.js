@@ -196,11 +196,28 @@ function askPassphrase(request, doc, { error = "", status = 401 } = {}) {
 
 /* ---------- the artifact itself ---------- */
 
+// The bridge this site adds to the artifact's frame. It reports where the
+// frame is scrolled and scrolls it back on request — which is what lets the
+// editor open in place rather than sending the reader back to the top. An
+// artifact that ships its own content policy may refuse it, in which case the
+// editor simply opens at the top.
+const BRIDGE = `<script src="/artifact-frame.js"></${"script"}>`;
+
+function withBridge(html) {
+  const at = html.toLowerCase().lastIndexOf("</body>");
+  return at === -1 ? html + BRIDGE : html.slice(0, at) + BRIDGE + html.slice(at);
+}
+
 // The artifact runs inside a sandboxed iframe with no allow-same-origin, so the
 // browser gives it an opaque origin: it cannot read this site's cookies, call
 // its API with the viewer's session, or reach another artifact's storage.
 // Inlining through srcdoc rather than serving the HTML from its own endpoint
 // means there is no raw URL left to route around this shell.
+//
+// The page also carries the editor, dormant: its bar hidden, its button not
+// shown until the reader turns out to own the artifact. Editing is a mode of
+// this page rather than a page of its own, so opening it swaps the frame
+// without the artifact — or the reader's place in it — being reloaded.
 function shell(doc) {
   return `<!doctype html>
 <html lang="en">
@@ -211,15 +228,87 @@ function shell(doc) {
 <title>${forText(doc.title)}</title>
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: #fff; }
-  iframe { display: block; width: 100%; height: 100%; border: 0; }
+  body { display: flex; flex-direction: column; }
   @media (prefers-color-scheme: dark) { html, body { background: #111; } }
+
+  /* Both frames live here, stacked, so one can be brought up to the reader's
+     place before the other is taken away. */
+  #ae-stage { position: relative; flex: 1 1 auto; min-height: 0; }
+  .ae-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+  /* Laid out, and so scrollable, but not yet painted. Never display:none —
+     that would reset the frame's scroll and lose the reader's place. */
+  .ae-frame.ae-staging { visibility: hidden; }
+
+  /* The editor's bar. Part of this page, shown only once editing starts. */
+  #ae-bar {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: .75rem;
+    padding: .5rem .85rem;
+    font: 400 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: #E9EFEC; background: #0F1918;
+    border-bottom: 1px solid #24322F;
+  }
+  #ae-bar[hidden] { display: none; }
+  #ae-title {
+    font-weight: 500; font-size: .95rem; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #ae-hint { font-size: .74rem; color: #64766F; white-space: nowrap; }
+  #ae-gap { flex: 1 1 auto; }
+  #ae-state { font-size: .78rem; color: #91A49E; white-space: nowrap; }
+  #ae-state.bad { color: #E88A80; }
+  #ae-bar button {
+    font: inherit; font-size: .86rem;
+    color: #E9EFEC; background: #182523;
+    border: 1px solid #24322F; border-radius: 7px;
+    padding: .35rem .9rem; cursor: pointer;
+    transition: border-color .14s ease;
+  }
+  #ae-bar button:hover:not(:disabled) { border-color: #64766F; }
+  #ae-bar button:disabled { opacity: .45; cursor: not-allowed; }
+  #ae-bar #ae-save { color: #63C9B7; background: #14302B; }
+  #ae-bar #ae-save:hover:not(:disabled) { border-color: #63C9B7; }
+
+  /* The artifact scrolls inside its own frame, so this sits still without
+     anything having to watch the scroll. Bottom right because the top of a
+     page is where an artifact usually puts its own title or nav. */
+  #ae-edit {
+    position: fixed; right: 1rem; bottom: 1rem; z-index: 2147483647;
+    display: none; align-items: center; gap: .35rem;
+    padding: .5rem .85rem; border-radius: 999px;
+    font: 500 13px/1 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: #E9EFEC; background: #141F1D; border: 1px solid #24322F;
+    text-decoration: none; opacity: .62;
+    box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 12px 28px -14px rgba(0,0,0,.75);
+    transition: opacity .15s ease, border-color .15s ease;
+  }
+  #ae-edit.on { display: inline-flex; }
+  #ae-edit:hover, #ae-edit:focus-visible { opacity: 1; border-color: #63C9B7; }
+
+  @media (max-width: 40rem) { #ae-hint { display: none; } }
+  @media print { #ae-edit, #ae-bar { display: none !important; } }
 </style>
 </head>
 <body>
-<iframe
-  title="${forText(doc.title)}"
-  sandbox="allow-scripts allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox"
-  srcdoc="${forAttribute(doc.html)}"></iframe>
+<header id="ae-bar" hidden>
+  <span id="ae-title">${forText(doc.title)}</span>
+  <span id="ae-hint">click any text to edit it</span>
+  <span id="ae-gap"></span>
+  <span id="ae-state" role="status"></span>
+  <button id="ae-save" type="button" disabled>Save</button>
+  <button id="ae-done" type="button">Done</button>
+</header>
+<div id="ae-stage">
+  <iframe
+    id="ae-view"
+    class="ae-frame"
+    title="${forText(doc.title)}"
+    sandbox="allow-scripts allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox"
+    srcdoc="${forAttribute(withBridge(doc.html))}"></iframe>
+</div>
+<a id="ae-edit" href="?edit=1">&#9998;&nbsp;Edit</a>
+<script src="/artifact-editor.js"></${"script"}>
+<script>ArtifactEditor.boot(${JSON.stringify({ slug: doc.slug })});</${"script"}>
 </body>
 </html>`;
 }

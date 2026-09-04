@@ -289,7 +289,7 @@ body {
 
 .row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto 2rem;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto auto;
   align-items: center;
   gap: .9rem;
   padding: .8rem .8rem;
@@ -341,7 +341,7 @@ body {
   box-shadow: 0 0 0 3px rgba(99,201,183,.16);
 }
 
-.rowdelete {
+.rowedit, .rowdelete {
   display: grid; place-items: center;
   width: 1.75rem; height: 1.75rem;
   border: none; border-radius: 6px;
@@ -351,8 +351,10 @@ body {
   opacity: 0;
   transition: opacity .14s ease, color .14s ease, background .14s ease;
 }
-.row:hover .rowdelete, .rowdelete:focus-visible { opacity: 1; }
+.row:hover .rowedit, .row:hover .rowdelete,
+.rowedit:focus-visible, .rowdelete:focus-visible { opacity: 1; }
 .rowdelete:hover { color: var(--danger); background: var(--danger-bg); }
+.rowedit:hover { color: var(--accent); background: var(--accent-bg); }
 
 /* ---------- modal ---------- */
 .modal-scrim {

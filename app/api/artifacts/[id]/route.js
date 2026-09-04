@@ -2,6 +2,7 @@ import { artifacts, projects, toObjectId } from "@/lib/mongo";
 import { requireUser } from "@/lib/guard";
 import { hashPassword } from "@/lib/auth";
 import { readExpiry, readPassphrase, shareSummary } from "@/lib/share";
+import { MAX_BYTES } from "@/lib/limits";
 import { TRASH_DAYS, trashSummary } from "@/lib/trash";
 
 export const dynamic = "force-dynamic";
@@ -28,18 +29,30 @@ export async function GET(request, { params }) {
   if (response) return response;
 
   const { id } = await params;
+  const url = new URL(request.url);
+  const wantsHtml = url.searchParams.get("format") === "html";
+  // `?meta=1` answers everything but the HTML. The Edit button on /a/[slug]
+  // asks this of every page it renders just to find out whether the person
+  // reading owns it, so that question must not drag a whole artifact out of
+  // the database to answer.
+  const meta =
+    !wantsHtml &&
+    ["1", "true", "yes"].includes((url.searchParams.get("meta") || "").toLowerCase());
+
   const col = await artifacts();
-  const doc = await col.findOne(ownedBy(user, String(id).trim()));
+  const doc = await col.findOne(
+    ownedBy(user, String(id).trim()),
+    meta ? { projection: { html: 0 } } : {}
+  );
   // Same answer whether the slug is unknown or someone else's.
   if (!doc) return Response.json({ error: "not found" }, { status: 404 });
 
-  const url = new URL(request.url);
   const headers = {
     "Cache-Control": "private, no-store",
     "X-Robots-Tag": "noindex, nofollow",
   };
 
-  if (url.searchParams.get("format") === "html") {
+  if (wantsHtml) {
     return new Response(doc.html, {
       status: 200,
       headers: {
@@ -70,10 +83,10 @@ export async function GET(request, { params }) {
         // A trashed artifact still reads back for its owner — that is what
         // makes "restore it or copy it out" possible — but it says so.
         ...trashSummary(doc),
-        bytes: doc.bytes ?? Buffer.byteLength(doc.html, "utf8"),
+        bytes: doc.bytes ?? (doc.html ? Buffer.byteLength(doc.html, "utf8") : null),
         createdAt: new Date(doc.createdAt).toISOString(),
         updatedAt: new Date(doc.updatedAt || doc.createdAt).toISOString(),
-        html: doc.html,
+        ...(meta ? {} : { html: doc.html }),
       },
     },
     { headers }
@@ -146,6 +159,31 @@ export async function PATCH(request, { params }) {
   }
 
   const set = {};
+
+  // The words on the page. The editor at /edit/[slug] sends the whole document
+  // back each save; the CLI's `--update` publishes over the same field through
+  // /api/upload. Same cap either way, so an artifact cannot grow past what a
+  // fresh upload of it would be allowed to be.
+  if ("html" in body) {
+    const html = typeof body.html === "string" ? body.html : "";
+    if (!html.trim()) {
+      return Response.json({ error: "html cannot be empty" }, { status: 400 });
+    }
+    const bytes = Buffer.byteLength(html, "utf8");
+    if (bytes > MAX_BYTES) {
+      // Worded as /api/upload words it, since it is the same cap.
+      return Response.json(
+        {
+          error: `artifact is ${Math.round(bytes / 1000)}KB, over the ${Math.round(
+            MAX_BYTES / 1000
+          )}KB limit — embed less, or link large media instead of inlining it`,
+        },
+        { status: 413 }
+      );
+    }
+    set.html = html;
+    set.bytes = bytes;
+  }
 
   if ("title" in body) {
     const title = typeof body.title === "string" ? body.title.trim() : "";

@@ -22,7 +22,11 @@ the account model and the phases still to come.
 - `GET /trash` — deleted artifacts, with the days each has left; restore one, or
   delete it for good
 - `GET /p/[slug]` — one project's artifacts
-- `GET /a/[slug]` — the artifact, rendered inside a sandboxed iframe. Private by
+- `GET /a/[slug]` — the artifact, rendered inside a sandboxed iframe, with the
+  editor dormant inside the same page: its owner gets an Edit button, and
+  clicking it swaps the frame for one that can be typed into rather than
+  loading another page, so the artifact is never reloaded and the reader keeps
+  their place. `?edit=1` opens straight into it. Private by
   default: the owner's session or their `Authorization: Bearer <API token>` gets
   it, unless the artifact is toggled to Shared in the dashboard. Anything else
   gets a 404 that reads the same whether the slug is unknown or simply not
@@ -44,7 +48,9 @@ the account model and the phases still to come.
   `?project=<id|slug|name>` (or `unfiled`), `?q=<title text>`, `?limit=<n>`,
   `?trashed=1` for the trash instead. Session or API token.
 - `GET /api/artifacts/[id-or-slug]` — one artifact with its `html`;
-  `?format=html` returns the HTML alone as `text/plain`. Session or API token.
+  `?format=html` returns the HTML alone as `text/plain`; `?meta=1` leaves the
+  HTML out, which is how the artifact page asks whether the reader owns it
+  without pulling a whole page out of the database. Session or API token.
 - `GET /api/trash` — what is in the trash, with `daysLeft` and `retentionDays`
   (session or API token); `DELETE /api/trash` empties it for good (session)
 - `GET /api/me` — the token's owner, used by `personal-artifact` to validate a token
@@ -53,7 +59,9 @@ the account model and the phases still to come.
 - `GET|POST /api/tokens`, `DELETE /api/tokens/[id]` — issue, list, revoke (session required)
 - `GET|POST /api/projects` — list (with counts) / create, body `{ name }` (session or API token)
 - `PATCH|DELETE /api/projects/[id]` — rename (`{ name }`) / delete, trashing its artifacts (session required)
-- `PATCH|DELETE /api/artifacts/[id]` — edit (`{ title?, projectId?, visibility?, expiresIn?, expiresAt?, passphrase? }`) / move to the trash (session required).
+- `PATCH|DELETE /api/artifacts/[id]` — edit (`{ title?, html?, projectId?, visibility?, expiresIn?, expiresAt?, passphrase? }`) / move to the trash (session required).
+  `html` replaces the page itself, under the same size cap `POST /api/upload`
+  enforces; it is what the in-place editor saves through.
   `{ restore: true }` is the one edit a trashed artifact accepts — it lifts it
   back out, Unfiled if the project it was in has since been deleted; every
   other edit on one is a 409. `DELETE ...?permanent=1` removes it outright, and

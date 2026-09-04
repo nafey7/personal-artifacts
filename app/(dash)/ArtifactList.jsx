@@ -148,6 +148,18 @@ export default function ArtifactList({ items, projects, showProject = true }) {
                 </select>
               )}
 
+              <a
+                className="rowedit"
+                href={`/a/${d.slug}?edit=1`}
+                aria-label={`Edit ${d.title}`}
+                title="Edit the text"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z" />
+                  <path d="M14.5 6.5l3 3" />
+                </svg>
+              </a>
+
               <button
                 type="button"
                 className="rowdelete"
