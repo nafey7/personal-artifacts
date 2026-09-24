@@ -18,7 +18,9 @@ the account model and the phases still to come.
 
 - `GET /signin`, `GET /signup` — account screens
 - `POST /api/auth/signin|signup|signout` — `{ email, password, name?, code? }`
-- `GET /` — dashboard, all artifacts newest first
+- `GET /` — the public home page when signed out (with `/llms.txt`,
+  `/robots.txt` and `/sitemap.xml` beside it for crawlers and agents); the
+  dashboard, all artifacts newest first, when signed in
 - `GET /trash` — deleted artifacts, with the days each has left; restore one, or
   delete it for good
 - `GET /p/[slug]` — one project's artifacts

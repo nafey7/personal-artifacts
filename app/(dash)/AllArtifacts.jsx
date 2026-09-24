@@ -1,15 +1,10 @@
-import { redirect } from "next/navigation";
-import { currentUser } from "@/lib/auth";
 import { loadArtifacts, loadProjects } from "@/lib/data";
 import ArtifactList from "./ArtifactList";
 import PageHead from "./PageHead";
 
-export const dynamic = "force-dynamic";
-
-export default async function AllArtifacts() {
-  const user = await currentUser();
-  if (!user) redirect("/signin");
-
+// The signed-in view of `/`. It is rendered by app/page.jsx, which decides
+// between this and the public home page, so the caller hands the user over.
+export default async function AllArtifacts({ user }) {
   const [items, { projects }] = await Promise.all([
     loadArtifacts(user.id),
     loadProjects(user.id),

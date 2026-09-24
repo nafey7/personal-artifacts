@@ -4,3 +4,4 @@ node_modules
 atlas-credentials.env
 .vercel
 .env*
+.playwright-mcp/
