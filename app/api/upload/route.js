@@ -85,22 +85,28 @@ export async function POST(request) {
     return Response.json({ error: "title and html are required" }, { status: 400 });
   }
 
-  // End-to-end encryption: `enc: 1`, the `iv`, and the artifact key wrapped
-  // under the account key arrive together, and `html` is then base64url
-  // ciphertext this server stores without ever being able to read. A body
-  // that says nothing about encryption publishes in the clear, and on
-  // --update that replaces an encrypted page with a plain one — the CLI keeps
-  // an encrypted artifact encrypted on its own.
+  // Every artifact published here is encrypted end to end: `enc: 1`, the
+  // `iv`, and the artifact key wrapped under the account key arrive together,
+  // and `html` is base64url ciphertext this server stores without ever being
+  // able to read. A body without them is refused — this server cannot encrypt
+  // on a caller's behalf, since it must never hold the key. That is what an
+  // older CLI hits, so the message says to upgrade it. Publishing over a plain
+  // artifact from before encryption makes it encrypted; nothing makes one
+  // plain again.
   const encryption = readEncryption(body);
   if (encryption.error) return Response.json({ error: encryption.error }, { status: 400 });
   const enc = encryption.present && encryption.value.enc === 1 ? encryption.value : null;
-  if (encryption.present && !enc && encryption.value.artKeyByPassphrase) {
+  if (!enc) {
     return Response.json(
-      { error: "artKeyByPassphrase only makes sense with enc, iv and artKeyWrapped" },
+      {
+        error:
+          "every artifact on this site is encrypted end to end, and this upload is not — send enc, iv and artKeyWrapped with the html as ciphertext. If you are publishing with the CLI, upgrade it: npm install -g personal-artifact@latest, then run personal-artifact once to fetch your encryption key.",
+        encryptionRequired: true,
+      },
       { status: 400 }
     );
   }
-  if (enc && !/^[A-Za-z0-9_-]+$/.test(html)) {
+  if (!/^[A-Za-z0-9_-]+$/.test(html)) {
     return Response.json({ error: "an encrypted html must be base64url ciphertext" }, { status: 400 });
   }
 
@@ -192,12 +198,11 @@ export async function POST(request) {
       bytes,
       visibility,
       updatedAt: new Date(),
-      enc: enc ? 1 : null,
-      iv: enc ? enc.iv : null,
-      artKeyWrapped: enc ? enc.artKeyWrapped : null,
+      enc: 1,
+      iv: enc.iv,
+      artKeyWrapped: enc.artKeyWrapped,
       // Kept unless the body sets or clears it, like the passphrase itself.
-      ...(enc && enc.artKeyByPassphrase !== undefined ? { artKeyByPassphrase: enc.artKeyByPassphrase } : {}),
-      ...(!enc ? { artKeyByPassphrase: null } : {}),
+      ...(enc.artKeyByPassphrase !== undefined ? { artKeyByPassphrase: enc.artKeyByPassphrase } : {}),
     };
     if (body.project) set.projectId = projectId;
     // Share options the caller mentioned are applied; ones it didn't are left
@@ -269,12 +274,10 @@ export async function POST(request) {
     visibility,
     shareExpiresAt,
     sharePassHash,
-    // Present and null on a plain artifact, so every read that asks
-    // { enc: 1 } or { enc: null } matches without a special case.
-    enc: enc ? 1 : null,
-    iv: enc ? enc.iv : null,
-    artKeyWrapped: enc ? enc.artKeyWrapped : null,
-    artKeyByPassphrase: enc && enc.artKeyByPassphrase ? enc.artKeyByPassphrase : null,
+    enc: 1,
+    iv: enc.iv,
+    artKeyWrapped: enc.artKeyWrapped,
+    artKeyByPassphrase: enc.artKeyByPassphrase || null,
     bytes,
     // Set from the start so the TTL index has a field to look at, and every
     // read filter matches without a special case for older documents.

@@ -13,7 +13,7 @@ export const metadata = {
   openGraph: {
     title: "Artifacts — one private home for everything your AI tools make",
     description:
-      "Every coding agent you use can publish to the same private site. Share a link when you choose, with an expiry or a passphrase.",
+      "Every coding agent you use can publish to the same private site, encrypted so the site cannot read it. Share a link when you choose, with an expiry or a passphrase.",
     url: "https://artifacts.pallason.com/",
     siteName: "Artifacts",
     type: "website",

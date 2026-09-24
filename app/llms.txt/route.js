@@ -7,8 +7,8 @@ export function GET() {
 > One private site for every HTML artifact your AI coding tools produce.
 > Claude Code, Codex, Gemini CLI and Cursor can all publish to it through one
 > CLI. Private by default; share a link when you choose, with an optional
-> expiry and passphrase. Encrypt an artifact end to end and the site stores
-> ciphertext it cannot read. Free and open source (MIT).
+> expiry and passphrase. Every artifact is encrypted end to end: the site
+> stores ciphertext it cannot read. Free and open source (MIT).
 
 Site: https://artifacts.pallason.com
 Sign up: https://artifacts.pallason.com/signup
@@ -30,18 +30,18 @@ every coding tool it finds on the machine.
     artifact-publish ./page.html "Title"
     artifact-publish ./page.html "Title" --project "Client Work"
     artifact-publish ./page.html "Title" --public --expires 7d
-    artifact-publish ./page.html "Title" --encrypted --public
 
-Each call prints the artifact's URL. For an encrypted public artifact the URL
-ends in #k=<key>; pass on the whole link, since the part after # is the key
-and the browser never sends it to the site.
+Each call prints the artifact's URL. A public artifact's URL ends in
+#k=<key>; pass on the whole link, since the part after # is the key and the
+browser never sends it to the site.
 
 ## Encryption, exactly
 
-Encrypted: the page (AES-256-GCM under a key made on the publisher's machine,
-stored wrapped under an account key the site never holds).
+Encrypted: every page (AES-256-GCM under a key made on the publisher's
+machine, stored wrapped under an account key the site never holds).
 Not encrypted: the owner's email, the title, the project, the size, dates,
-visibility, and which addresses opened which link. Plain artifacts stay plain.
+visibility, and which addresses opened which link. Artifacts from before
+encryption stay in the clear until their owner encrypts them.
 Limit: the decrypting script is served by the site, pinned by an integrity
 hash and generated from the CLI package on npm, where it can be read. The CLI
 itself has no such limit.
@@ -50,8 +50,8 @@ encrypted artifacts are gone; the site cannot help.
 
 ## HTTP API (Authorization: Bearer <API token>, tokens are issued at /settings)
 
-- POST /api/upload  body { title, html, project?, createProject?, visibility?, slug?, expiresIn?, passphrase? }
-                    encrypted: add enc: 1, iv, artKeyWrapped (html is base64url ciphertext), artKeyByPassphrase?
+- POST /api/upload  body { title, enc: 1, html, iv, artKeyWrapped, project?, createProject?, visibility?, slug?, expiresIn?, passphrase?, artKeyByPassphrase? }
+                    html is base64url ciphertext; a plain body is refused (the CLI encrypts for you)
 - GET  /api/artifacts            list, newest first; ?project=, ?q=, ?limit=, ?trashed=1; rows carry encrypted
 - GET  /api/artifacts/[id-or-slug]   one artifact with its html (ciphertext plus enc, iv, artKeyWrapped when encrypted);
                                      ?format=html for the html alone (409 on an encrypted one)

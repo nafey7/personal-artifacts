@@ -244,7 +244,7 @@ export default function ArtifactList({ items, projects, showProject = true }) {
                   disabled={pending === d.id}
                   onClick={() => { setEncrypting(d); setError(""); }}
                   aria-label={`Encrypt ${d.title}`}
-                  title="Encrypt this artifact end to end"
+                  title="From before encryption — still stored in the clear. Click to encrypt it."
                 >
                   <LockIcon size={14} />
                 </button>
@@ -303,7 +303,7 @@ export default function ArtifactList({ items, projects, showProject = true }) {
       {encrypting && (
         <Confirm
           title={`Encrypt “${encrypting.title}”?`}
-          body={`The page is encrypted here in your browser with a key of its own, and only ciphertext is kept on the site — nobody who runs it can read the page. You open it as usual; sharing it hands out a link that carries the key.${
+          body={`This artifact is from before encryption and is still stored in the clear. The page is encrypted here in your browser with a key of its own, and only ciphertext is kept on the site — nobody who runs it can read the page. You open it as usual; sharing it hands out a link that carries the key.${
             encrypting.hasPassphrase
               ? " The passphrase on its link cannot be carried over and is removed; set it again from the share sheet."
               : ""

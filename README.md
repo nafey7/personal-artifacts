@@ -16,9 +16,11 @@ Nothing else destroys an artifact: only "Delete for good" or "Empty trash" on
 The dashboard is behind a login. See [docs/accounts.md](docs/accounts.md) for
 the account model.
 
-Artifacts can be encrypted end to end: the page is sealed in the CLI or the
+Every artifact is encrypted end to end: the page is sealed in the CLI or the
 browser before it is uploaded, the site stores ciphertext and wrapped keys it
-cannot open, and the reader's browser decrypts it. See
+cannot open, and the reader's browser decrypts it. Artifacts from before
+encryption are still stored in the clear until their owner clicks the lock
+or publishes over them. See
 [docs/encryption.md](docs/encryption.md) for what that promise covers, what
 it does not, and how to check it.
 
@@ -79,11 +81,12 @@ it does not, and how to check it.
   `visibility` is `private` by default; `slug` replaces that artifact of yours
   in place rather than minting a new one). The response carries `url`,
   `project`, `visibility`, `encrypted` and a plain-language `note` saying who
-  can open it. An encrypted upload adds `enc: 1`, `iv` and `artKeyWrapped`
+  can open it. Every upload is encrypted: `enc: 1`, `iv` and `artKeyWrapped`
   together, with `html` as base64url ciphertext, and optionally
   `artKeyByPassphrase` beside `passphrase`; the size cap applies to the
-  ciphertext. A body that says nothing about encryption publishes plain, and
-  with `slug` that replaces an encrypted artifact with a plain one.
+  ciphertext. A body without them is a 400 with `encryptionRequired: true`
+  that says to upgrade the CLI. With `slug`, an upload over an artifact from
+  before encryption encrypts it.
 - `GET /api/artifacts` — your artifacts without their HTML, newest first.
   `?project=<id|slug|name>` (or `unfiled`), `?q=<title text>`, `?limit=<n>`,
   `?trashed=1` for the trash instead. Session or API token.
@@ -110,8 +113,9 @@ it does not, and how to check it.
   `html` replaces the page itself, under the same size cap `POST /api/upload`
   enforces; it is what the in-place editor saves through. On an encrypted
   artifact `html` must arrive as ciphertext with `enc: 1`, `iv` and
-  `artKeyWrapped`; a plain artifact takes the same three to become encrypted
-  ("Encrypt this" in the dashboard), and nothing here turns encryption off.
+  `artKeyWrapped`; an artifact from before encryption takes plain `html`
+  from the editor, or the same three to become encrypted (the lock in the
+  dashboard), and nothing turns encryption off.
   `artKeyByPassphrase` rides beside `passphrase` on an encrypted artifact and
   is cleared with it. Responses carry `encrypted`.
   `{ restore: true }` is the one edit a trashed artifact accepts — it lifts it
@@ -189,7 +193,6 @@ artifact-publish ./artifact.html "Load test report" --expires 7d
 artifact-publish ./artifact.html "Load test report" --passphrase "salt marsh heron"
 artifact-publish ./artifact.html "Load test report" --update load-test-report-3f9a1c
 artifact-publish ./artifact.html "Load test report" --new-project "New Client"
-artifact-publish ./artifact.html "Load test report" --encrypted --public
 ```
 
 It prints the URL on stdout and one line on stderr saying who can open it.
@@ -199,10 +202,10 @@ needed. `--public` publishes a link anyone can open; without it the artifact is
 private, and fetching its URL without your session or token returns 404 by
 design. `--expires` and `--passphrase` share the link for a limited time or
 behind a passphrase, and imply `--public`. `--update` replaces an artifact you
-already published, keeping its URL. `--encrypted` seals the page on the
+already published, keeping its URL. Every publish seals the page on the
 machine before upload; with `--public` the printed link ends in `#k=<key>`,
-which the browser never sends to the site, and `--update` keeps an encrypted
-artifact encrypted under the same key unless `--plain` is passed.
+which the browser never sends to the site, and `--update` keeps the artifact
+under the same key so links handed out keep opening.
 
 Read back what is there:
 
@@ -212,8 +215,8 @@ artifact-publish list [--project "Client Work"] [--search dashboard] [--json]
 artifact-publish get <slug> [--out ./page.html] [--raw]
 ```
 
-`get` decrypts an encrypted artifact with the key in `~/.artifact-publish.json`;
-`--raw` returns the ciphertext fields as stored.
+`get` decrypts with the key in `~/.artifact-publish.json`; `--raw` returns the
+ciphertext fields as stored.
 
 Artifacts are capped at 2MB (`MAX_ARTIFACT_BYTES`) and 200 per account
 (`MAX_ARTIFACTS_PER_USER`). `/settings` shows how much of that allowance an
@@ -268,9 +271,10 @@ page cannot read this site's cookies, call its API with a viewer's session, or
 reach another artifact's storage. The cost is that browser storage does not work
 inside an artifact at all — `localStorage` throws on an opaque origin.
 
-An encrypted artifact is one this site cannot read. What is encrypted: the
-page. What is not: your email, the title, the project, the size, dates,
-visibility, and which addresses opened which link. How to check it: the
+Every artifact is one this site cannot read. What is encrypted: the page.
+What is not: your email, the title, the project, the size, dates,
+visibility, and which addresses opened which link. Artifacts from before
+encryption stay in the clear until their owner encrypts them. How to check it: the
 network tab shows ciphertext and wrapped keys leaving and arriving, and
 nothing after the `#` of a link; the scripts that decrypt are pinned by hash
 in `lib/integrity.js` and generated from `cli/crypto.js`, which is published

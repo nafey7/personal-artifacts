@@ -90,20 +90,28 @@ function run(args, env = {}) {
   });
 }
 
-test("a plain publish sends the html as it is", async () => {
+test("a publish with no flags is encrypted, and a private one prints a bare URL", async () => {
   requests = [];
-  const r = await run(["page.html", "Plain page"]);
+  const r = await run(["page.html", "Some page"]);
   assert.equal(r.code, 0, r.err);
   const upload = requests.find((q) => q.url === "/api/upload");
   assert.equal(upload.auth, "Bearer pa_test");
-  assert.match(upload.body.html, /quick brown fox/);
-  assert.equal(upload.body.enc, undefined);
+  assert.equal(upload.body.enc, 1);
+  assert.doesNotMatch(upload.body.html, /quick brown fox/);
   assert.equal(r.out.trim(), `${site}/a/page-abc123`);
 });
 
-test("--encrypted sends ciphertext, an iv and a wrapped key, and no plaintext", async () => {
+test("--plain is refused and --encrypted is accepted as a no-op", async () => {
+  const r = await run(["page.html", "Some page", "--plain"]);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /--plain is gone/);
+  const r2 = await run(["page.html", "Some page", "--encrypted"]);
+  assert.equal(r2.code, 0, r2.err);
+});
+
+test("a public publish sends ciphertext, an iv and a wrapped key, and no plaintext", async () => {
   requests = [];
-  const r = await run(["page.html", "Secret page", "--encrypted", "--public"]);
+  const r = await run(["page.html", "Secret page", "--public"]);
   assert.equal(r.code, 0, r.err);
   const upload = requests.find((q) => q.url === "/api/upload");
   const body = upload.body;
@@ -130,9 +138,9 @@ test("--encrypted sends ciphertext, an iv and a wrapped key, and no plaintext", 
   assert.match(r.err, /everything after the #/);
 });
 
-test("--encrypted with --passphrase wraps the key under the passphrase and prints a link with no key", async () => {
+test("--passphrase wraps the key under the passphrase and prints a link with no key", async () => {
   requests = [];
-  const r = await run(["page.html", "Gated", "--encrypted", "--passphrase", "salt marsh heron"]);
+  const r = await run(["page.html", "Gated", "--passphrase", "salt marsh heron"]);
   assert.equal(r.code, 0, r.err);
   const body = requests.find((q) => q.url === "/api/upload").body;
   assert.equal(body.passphrase, "salt marsh heron");
@@ -142,9 +150,9 @@ test("--encrypted with --passphrase wraps the key under the passphrase and print
   assert.doesNotMatch(r.out, /#k=/);
 });
 
-test("--encrypted without an account key exits 2 and says how to get one", async () => {
+test("publishing without an account key exits 2 and says how to get one", async () => {
   writeFileSync(join(home, ".artifact-publish.json"), JSON.stringify({ site, token: "pa_test" }));
-  const r = await run(["page.html", "Secret page", "--encrypted"]);
+  const r = await run(["page.html", "Secret page"]);
   assert.equal(r.code, 2);
   assert.match(r.err, /run `personal-artifact` again/);
   writeFileSync(join(home, ".artifact-publish.json"), JSON.stringify({ site, token: "pa_test", accountKey: accountKeyB64 }));
@@ -178,7 +186,7 @@ test("get decrypts an encrypted artifact, and --raw hands back the ciphertext", 
   assert.equal(r3.out, blob.ct);
 });
 
-test("--update keeps an encrypted artifact under its existing key", async () => {
+test("--update keeps an artifact under its existing key, and encrypts one from before encryption", async () => {
   requests = [];
   const r = await run(["page.html", "Secret page", "--update", "page-abc123"]);
   assert.equal(r.code, 0, r.err);
@@ -190,16 +198,23 @@ test("--update keeps an encrypted artifact under its existing key", async () => 
   assert.deepEqual(await c.exportKey(sentKey), await c.exportKey(existingKey));
   assert.match(await c.decrypt({ v: 1, iv: body.iv, ct: body.html }, existingKey), /quick brown fox/);
 
+  // An artifact from before encryption has no key; the update gives it one.
+  const wasStored = stored;
+  stored = { ...stored, encrypted: false, enc: undefined, artKeyWrapped: undefined };
   requests = [];
-  const r2 = await run(["page.html", "Secret page", "--update", "page-abc123", "--plain"]);
+  const r2 = await run(["page.html", "Old page", "--update", "page-abc123"]);
   assert.equal(r2.code, 0, r2.err);
-  const plainBody = requests.find((q) => q.url === "/api/upload").body;
-  assert.equal(plainBody.enc, undefined);
-  assert.match(plainBody.html, /quick brown fox/);
+  const upgraded = requests.find((q) => q.url === "/api/upload").body;
+  assert.equal(upgraded.enc, 1);
+  assert.doesNotMatch(upgraded.html, /quick brown fox/);
+  stored = wasStored;
 });
 
-test("list marks encrypted artifacts", async () => {
-  const r = await run(["list"]);
+test("list points out artifacts still stored in the clear", async () => {
+  let r = await run(["list"]);
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /page-abc123.*private🔒/);
+  assert.match(r.out, /page-abc123.*private {2}/);
+  stored = { ...stored, encrypted: false };
+  r = await run(["list"]);
+  assert.match(r.out, /page-abc123.*private plain/);
 });

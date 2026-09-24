@@ -23,7 +23,7 @@ const FEATURES = [
   },
   {
     title: "Encrypted end to end",
-    body: "Encrypt an artifact and the site stores only ciphertext. Not even the person running it can read the page.",
+    body: "Every artifact is sealed before it is uploaded. The site stores only ciphertext; not even the person running it can read the page.",
     icon: "M4 11h16v10H4zM8 11V7a4 4 0 0 1 8 0v4",
   },
   {
@@ -240,9 +240,8 @@ export default function Landing() {
           <div className="lp-e2e-grid">
             <div>
               <p>
-                Publish with <code>--encrypted</code>, or click the lock on a row, and the page is sealed
-                in your browser or on your machine before it is uploaded. The site keeps ciphertext and
-                keys wrapped under a key it has never held, and hands them back to a browser that
+                Every artifact is sealed on your machine before it is uploaded. The site keeps ciphertext
+                and keys wrapped under a key it has never held, and hands them back to a browser that
                 decrypts them. A twelve-word recovery phrase is the way back if you forget your password.
               </p>
               <p>
@@ -254,7 +253,7 @@ export default function Landing() {
               <div>
                 <h3>Encrypted</h3>
                 <ul>
-                  <li>The page itself, on artifacts you choose to encrypt</li>
+                  <li>The page itself, on every artifact</li>
                   <li>The key that opens it, wrapped under your account key</li>
                   <li>Nothing after the <code>#</code> of a shared link ever reaches the site</li>
                 </ul>
@@ -265,7 +264,7 @@ export default function Landing() {
                   <li>Your email, the title, the project</li>
                   <li>Size, dates, whether and how it is shared</li>
                   <li>Which addresses opened which link</li>
-                  <li>Plain artifacts, which stay the default</li>
+                  <li>Artifacts from before encryption, until you click their lock</li>
                 </ul>
               </div>
             </div>
@@ -314,10 +313,11 @@ export default function Landing() {
               <p>
                 Tokens are issued at <code>/settings</code>. Send one as a bearer token and every screen has a
                 matching endpoint: publish, list, edit, file into a project, share, restore from the trash.
-                The short version lives at <a href="/llms.txt">/llms.txt</a>.
+                The short version lives at <a href="/llms.txt">/llms.txt</a>. Uploads are ciphertext:
+                the CLI does the encryption, and a raw call has to do the same.
               </p>
               <ul className="lp-endpoints">
-                <li><code>POST /api/upload</code> <span>publish {"{ title, html, project?, visibility? }"}</span></li>
+                <li><code>POST /api/upload</code> <span>publish {"{ title, enc, html, iv, artKeyWrapped, project?, visibility? }"}</span></li>
                 <li><code>GET /api/artifacts</code> <span>list, newest first</span></li>
                 <li><code>PATCH /api/artifacts/[id]</code> <span>edit, share, expire, restore</span></li>
                 <li><code>GET|POST /api/projects</code> <span>list or make a folder</span></li>
@@ -326,7 +326,7 @@ export default function Landing() {
             <pre className="lp-code"><code>{`curl -X POST ${SITE}/api/upload \\
   -H "Authorization: Bearer $ARTIFACT_TOKEN" \\
   -H "Content-Type: application/json" \\
-  -d '{"title":"Load test report","html":"<!doctype html>…"}'`}</code></pre>
+  -d '{"title":"Load test report","enc":1,"html":"<ciphertext>","iv":"…","artKeyWrapped":{…}}'`}</code></pre>
           </div>
         </section>
 

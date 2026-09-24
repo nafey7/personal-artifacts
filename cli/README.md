@@ -84,8 +84,6 @@ artifact-publish ./page.html "Load Test Report" --public
 artifact-publish ./page.html "Load Test Report" --expires 7d
 artifact-publish ./page.html "Load Test Report" --passphrase "salt marsh heron"
 artifact-publish ./page.html "Load Test Report" --update load-test-report-3f9a1c
-artifact-publish ./page.html "Load Test Report" --encrypted
-artifact-publish ./page.html "Load Test Report" --encrypted --public
 ```
 
 The URL goes to stdout, so piping it still works; one line saying who can open
@@ -107,21 +105,18 @@ it goes to stderr.
   URL, instead of minting a second one. Share options you don't mention stay
   as they were; `--expires never` clears an expiry.
 
-- `--encrypted` seals the page on your machine before it is uploaded. See
-  **Encrypted end to end** below.
-
 Both `--expires` and `--passphrase` imply `--public`. You, the owner, are never
 asked for the passphrase and never locked out by the expiry.
 
 ## Encrypted end to end
 
-`--encrypted` makes an artifact the site cannot read — not its operator, not
-its database host, not anyone with a copy of the database. The CLI makes a
-random key for the page, encrypts the HTML with it here, wraps that key under
-your account key, and uploads ciphertext and wrapped keys only. The page is
-decrypted in the reader's browser by a script the site serves with an
-integrity hash, and which is generated from `crypto.js` in this package so
-you can read the code that runs.
+Every artifact is one the site cannot read — not its operator, not its
+database host, not anyone with a copy of the database. There is no flag: the
+CLI makes a random key for the page, encrypts the HTML with it here, wraps
+that key under your account key, and uploads ciphertext and wrapped keys
+only. The page is decrypted in the reader's browser by a script the site
+serves with an integrity hash, and which is generated from `crypto.js` in
+this package so you can read the code that runs.
 
 - A private encrypted artifact opens for you as usual; your browser holds the
   account key after you sign in.
@@ -131,8 +126,9 @@ you can read the code that runs.
   **Re-encrypt** in the share sheet changes the key so old links stop working.
 - Shared with `--passphrase`, the passphrase unlocks the key instead, and the
   link carries none.
-- `get` decrypts. `--update` keeps the artifact encrypted under the same key
-  unless you pass `--plain`. `list` marks encrypted rows with a lock.
+- `get` decrypts. `--update` keeps the artifact under the same key. `list`
+  says `plain` on artifacts from before encryption, which are still stored in
+  the clear; updating one, or clicking the lock in the dashboard, encrypts it.
 - What the site still sees: your email, the title, the project, the size,
   dates, visibility, and who opened which link. Titles stay in the clear so
   search and the dashboard keep working.
@@ -158,8 +154,8 @@ artifact-publish get <slug>                        # the HTML on stdout
 ```
 
 `list` prints one line per artifact — slug, last updated, `public` or
-`private` (with a lock for encrypted ones), project, title. Add `--json` to
-any of them for the raw API response. `get` decrypts an encrypted artifact;
+`private` (with `plain` after it for the few from before encryption), project,
+title. Add `--json` to any of them for the raw API response. `get` decrypts;
 `--raw` returns the ciphertext fields as stored.
 
 ## Private by default

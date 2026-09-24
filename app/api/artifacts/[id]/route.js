@@ -178,11 +178,10 @@ export async function PATCH(request, { params }) {
   const set = {};
 
   // Encryption fields ride with `html` and never on their own. An encrypted
-  // artifact takes new html only as ciphertext with its iv; a plain one takes
-  // plain html, or all of enc, iv and artKeyWrapped together to become
-  // encrypted (what "Encrypt this" in the dashboard sends). Turning
-  // encryption off happens nowhere here — the CLI republishes plain through
-  // /api/upload if that is really wanted.
+  // artifact takes new html only as ciphertext with its iv. A plain artifact
+  // — one from before encryption — takes plain html from the editor, or all
+  // of enc, iv and artKeyWrapped together to become encrypted (what the lock
+  // in the dashboard sends). Nothing anywhere turns encryption off.
   const encryption = readEncryption(body);
   if (encryption.error) return Response.json({ error: encryption.error }, { status: 400 });
   const enc = encryption.present && encryption.value.enc === 1 ? encryption.value : null;

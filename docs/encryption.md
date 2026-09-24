@@ -1,7 +1,7 @@
 # End-to-end encryption
 
-Status: **built.** An artifact published with `--encrypted`, or encrypted from
-the dashboard, is stored as ciphertext this site cannot read. This note is
+Status: **built, and on for every artifact.** Everything published is stored
+as ciphertext this site cannot read; there is no flag and no plain path. This note is
 the design, the reasoning, and the exact promise — what is encrypted, what is
 not, and how to check.
 
@@ -17,8 +17,9 @@ database can read the page.
 is in, its size in bytes, when it was published and edited, whether it is
 shared, for how long and whether behind a passphrase, and which addresses
 opened which link. Titles stay in the clear so search, the dashboard and the
-trash keep working. Plain artifacts — everything published without
-`--encrypted` — are as readable to the site as they always were.
+trash keep working. Artifacts from before encryption are as readable to the
+site as they always were, until their owner encrypts them — the lock on the
+row, or publishing over them — which is the only migration there is.
 
 **The one limit no browser design removes:** the script that decrypts in the
 browser is served by this site. An operator who wanted to could ship a copy
@@ -31,7 +32,7 @@ code is on npm to read before it runs.
 
 ## How to check
 
-- **The network tab.** Publish with `--encrypted`, open the artifact, and
+- **The network tab.** Publish an artifact, open it, and
   watch: the upload body carries `html` as base64url, an `iv` and an
   `artKeyWrapped` blob; the page load carries the same ciphertext in a
   `data-ct` attribute and two scripts. Nothing after the `#` of a shared
@@ -109,12 +110,13 @@ old one becomes unreadable for good. Plain artifacts are unaffected.
 
 ### Publish, view, edit
 
-- **CLI publish** (`--encrypted`): make `artKey`, encrypt the HTML, wrap
+- **CLI publish**, every time: make `artKey`, encrypt the HTML, wrap
   `artKey` under the account key from `~/.artifact-publish.json`, `POST
   /api/upload` with `{ enc: 1, html: <ciphertext>, iv, artKeyWrapped }`. The
-  size cap applies to the ciphertext. `--update` of an encrypted artifact
-  reuses its key so handed-out links keep working; `--plain` publishes it in
-  the clear. `get` decrypts; `--raw` does not.
+  size cap applies to the ciphertext. The server refuses an upload without
+  those fields, which is what an older CLI hits. `--update` reuses the
+  artifact's key so handed-out links keep working, and gives an artifact
+  from before encryption its first. `get` decrypts; `--raw` does not.
 - **Viewer** (`/a/<slug>`): for `enc: 1` the route sends the ciphertext and
   wrapped keys in `data-` attributes on the frame's parent and two pinned
   scripts, `/artifact-crypto.v1.js` and `/artifact-view.v1.js`. The viewer
@@ -128,9 +130,9 @@ old one becomes unreadable for good. Plain artifacts are unaffected.
 - **Editor:** already in the page; it takes the words and the key from the
   viewer, edits, encrypts under the same key, and `PATCH`es ciphertext with
   the iv. Nothing about the key changes on an edit.
-- **Dashboard:** "Encrypt this" on a plain row fetches the HTML, encrypts it
-  in the browser and `PATCH`es all three fields; one way from the dashboard.
-  Encrypted rows carry a lock.
+- **Dashboard:** the lock on a row from before encryption fetches the HTML,
+  encrypts it in the browser and `PATCH`es all three fields. One way.
+  Encrypted rows carry a lock badge.
 
 ### Sharing
 
@@ -163,10 +165,11 @@ stored copy is non-extractable by design.
 
 ## Decisions, and why
 
-- **Opt-in per artifact.** Plain artifacts keep working forever and stay
-  the default. Encrypted pages cannot be searched by content and cannot be
-  recovered without the phrase; that is a trade a person should make on
-  purpose.
+- **On for everything, no flag.** A choice per artifact would mean most
+  pages stayed readable to the site, and the promise on the home page would
+  hold only sometimes. The costs are known: no search by content, and no
+  recovery without the phrase. Artifacts from before encryption are the one
+  exception, and only until their owner encrypts them.
 - **Titles in the clear.** Search, the list and the trash keep working.
 - **PBKDF2 at 600,000 rounds**, native to WebCrypto everywhere, about a
   second on a phone. Shown as "Unlocking…". Argon2id if it ever matters; the
