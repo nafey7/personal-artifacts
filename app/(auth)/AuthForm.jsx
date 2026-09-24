@@ -3,20 +3,33 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import * as keystore from "@/lib/keystore";
+import { deriveAuth, lockedCopy, makeKeys, remember } from "@/lib/account-key";
+import RecoveryPhrase from "./RecoveryPhrase";
 
 // One form for both screens; `mode` decides the extra fields and the endpoint.
 // Signup has a second stage: the emailed code. It lives here rather than on its
 // own route so the typed details survive a resend without being retyped or
 // passed through the URL.
+//
+// The password never leaves this form. Before any request it is turned into
+// an `authHash` the server checks and a `wrapKey` the server never sees; a new
+// account also makes its account key and recovery phrase here. The one
+// exception is an account from before encryption: its first sign-in sends the
+// password one last time, to /api/auth/upgrade, and comes out the other side
+// as a v2 account with a phrase to write down.
 export default function AuthForm({ mode, next }) {
   const signup = mode === "signup";
   const router = useRouter();
 
   const [fields, setFields] = useState({ name: "", email: "", password: "", code: "" });
-  const [stage, setStage] = useState("form");
+  const [stage, setStage] = useState("form"); // form | code | phrase
   const [pending, setPending] = useState(false);
+  const [busy, setBusy] = useState(""); // what the button says while it works
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  const [made, setMade] = useState(null); // { accountKey, words, accountKeyByPassword, accountKeyByRecovery }
+  const [upgraded, setUpgraded] = useState(false);
 
   const set = (key) => (e) => setFields((f) => ({ ...f, [key]: e.target.value }));
 
@@ -40,6 +53,16 @@ export default function AuthForm({ mode, next }) {
     return { res, data: await res.json().catch(() => ({})) };
   }
 
+  // The slow derivation, named on the button while it runs.
+  async function derive() {
+    setBusy("Unlocking…");
+    try {
+      return await deriveAuth(fields.email, fields.password);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function submit(e) {
     e.preventDefault();
     setPending(true);
@@ -47,15 +70,21 @@ export default function AuthForm({ mode, next }) {
     setNote("");
     try {
       if (signup && stage === "form") {
+        const { authHash, wrapKey } = await derive();
+        const keys = await makeKeys(wrapKey);
         const { res, data } = await post("/api/auth/signup", {
           name: fields.name,
           email: fields.email,
-          password: fields.password,
+          authVersion: 2,
+          authHash,
+          accountKeyByPassword: keys.accountKeyByPassword,
+          accountKeyByRecovery: keys.accountKeyByRecovery,
         });
         if (!res.ok) {
           setError(data.error || `request failed (${res.status})`);
           return;
         }
+        setMade(keys);
         setStage("code");
         return;
       }
@@ -74,21 +103,68 @@ export default function AuthForm({ mode, next }) {
           }
           return;
         }
+        // The key made before the code was sent is still in memory. If the
+        // page was reloaded meanwhile it is not, and the dashboard will ask
+        // for the password once to unlock it instead.
+        if (made) {
+          try {
+            await keystore.put(await lockedCopy(made.accountKey));
+          } catch {
+            // The keystore is unavailable (some private windows). The
+            // dashboard asks for the password once instead.
+          }
+          setStage("phrase");
+          return;
+        }
         enter();
         return;
       }
 
-      const { res, data } = await post("/api/auth/signin", {
-        email: fields.email,
-        password: fields.password,
-      });
-      if (!res.ok) {
-        setError(data.error || `request failed (${res.status})`);
+      const { authHash, wrapKey } = await derive();
+      const { res, data } = await post("/api/auth/signin", { email: fields.email, authHash });
+
+      if (res.ok) {
+        if (data.accountKeyByPassword) {
+          try {
+            await remember(data.accountKeyByPassword, wrapKey);
+          } catch {
+            // The keystore is unavailable (some private windows). Signing in
+            // still works; the dashboard asks again when a key is needed.
+          }
+        }
+        enter();
         return;
       }
-      enter();
-    } catch {
-      setError("network error — try again");
+
+      if (data.legacy) {
+        // An account from before encryption. Make its keys now, prove the
+        // password one last time, and show the phrase.
+        const keys = await makeKeys(wrapKey);
+        const up = await post("/api/auth/upgrade", {
+          email: fields.email,
+          password: fields.password,
+          authHash,
+          accountKeyByPassword: keys.accountKeyByPassword,
+          accountKeyByRecovery: keys.accountKeyByRecovery,
+        });
+        if (!up.res.ok) {
+          setError(up.data.error || `request failed (${up.res.status})`);
+          return;
+        }
+        try {
+          await remember(keys.accountKeyByPassword, wrapKey);
+        } catch {
+          // As above.
+        }
+        setMade(keys);
+        setUpgraded(true);
+        setStage("phrase");
+        return;
+      }
+
+      setError(data.error || `request failed (${res.status})`);
+    } catch (err) {
+      setError(err?.message ? `something went wrong — ${err.message}` : "network error — try again");
     } finally {
       setPending(false);
     }
@@ -114,6 +190,24 @@ export default function AuthForm({ mode, next }) {
     }
   }
 
+  if (stage === "phrase" && made) {
+    return (
+      <div className="authwrap">
+        <RecoveryPhrase
+          words={made.words}
+          heading={upgraded ? "Your account is now encrypted" : "Your recovery phrase"}
+          note={
+            upgraded
+              ? "Artifacts you encrypt from now on are unreadable to everyone but you, this site's operator included. These twelve words are the only way back into them if you forget your password. Write them down; this site never sees them and cannot show them again."
+              : undefined
+          }
+          doneLabel="Continue to my artifacts"
+          onDone={enter}
+        />
+      </div>
+    );
+  }
+
   const codeStage = signup && stage === "code";
 
   return (
@@ -132,7 +226,7 @@ export default function AuthForm({ mode, next }) {
           {codeStage
             ? `We sent a six-character code to ${fields.email}. It expires in ten minutes.`
             : signup
-              ? "Your artifacts are private to your account."
+              ? "Your artifacts are private to your account, and can be encrypted so that only you can read them."
               : "Welcome back to your artifact archive."}
         </p>
 
@@ -187,7 +281,7 @@ export default function AuthForm({ mode, next }) {
                 value={fields.password}
                 onChange={set("password")}
                 autoComplete={signup ? "new-password" : "current-password"}
-                minLength={signup ? 10 : undefined}
+                minLength={10}
                 placeholder={signup ? "at least 10 characters" : "••••••••••"}
               />
             </label>
@@ -205,7 +299,7 @@ export default function AuthForm({ mode, next }) {
 
         <button className="authsubmit" type="submit" disabled={pending}>
           {pending
-            ? "One moment…"
+            ? busy || "One moment…"
             : codeStage
               ? "Confirm and create account"
               : signup

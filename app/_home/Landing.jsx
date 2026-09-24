@@ -22,6 +22,11 @@ const FEATURES = [
     icon: "M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1",
   },
   {
+    title: "Encrypted end to end",
+    body: "Encrypt an artifact and the site stores only ciphertext. Not even the person running it can read the page.",
+    icon: "M4 11h16v10H4zM8 11V7a4 4 0 0 1 8 0v4",
+  },
+  {
     title: "Projects",
     body: "File artifacts into folders per client or topic. Your agent can pick the folder when it publishes.",
     icon: "M4 7h6l2 2h8v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z",
@@ -95,7 +100,7 @@ const JSON_LD = {
       version: pkg.version,
       codeRepository: REPO,
       programmingLanguage: "JavaScript",
-      runtimePlatform: "Node.js >= 18",
+      runtimePlatform: "Node.js >= 20",
       license: "https://opensource.org/license/mit",
       installUrl: NPM,
       description: pkg.description,
@@ -121,6 +126,7 @@ export default function Landing() {
         <nav className="lp-nav-links" aria-label="Primary">
           <a href="#how">How it works</a>
           <a href="#features">Features</a>
+          <a href="#encryption">Encryption</a>
           <a href={NPM} rel="noopener">npm</a>
           <Link href="/signin" className="lp-nav-signin">Sign in</Link>
           <Link href="/signup" className="lp-btn lp-btn-primary lp-btn-sm">Get started</Link>
@@ -204,7 +210,7 @@ export default function Landing() {
             ))}
           </ol>
           <p className="lp-note">
-            Needs Node.js 18 or newer. Prefer the command line? <code>artifact-publish ./page.html "Title"</code> publishes any HTML file by hand.
+            Needs Node.js 20 or newer. Prefer the command line? <code>artifact-publish ./page.html "Title"</code> publishes any HTML file by hand.
           </p>
         </section>
 
@@ -224,6 +230,52 @@ export default function Landing() {
               </li>
             ))}
           </ul>
+        </section>
+
+        <section className="lp-section lp-e2e" id="encryption" aria-labelledby="e2e-title" data-reveal>
+          <div className="lp-section-head">
+            <p className="lp-eyebrow">Encryption, exactly</p>
+            <h2 id="e2e-title">Some pages the site itself cannot read.</h2>
+          </div>
+          <div className="lp-e2e-grid">
+            <div>
+              <p>
+                Publish with <code>--encrypted</code>, or click the lock on a row, and the page is sealed
+                in your browser or on your machine before it is uploaded. The site keeps ciphertext and
+                keys wrapped under a key it has never held, and hands them back to a browser that
+                decrypts them. A twelve-word recovery phrase is the way back if you forget your password.
+              </p>
+              <p>
+                The claim is narrow on purpose. It is not zero-knowledge about you: the site still sees
+                everything in the second list.
+              </p>
+            </div>
+            <div className="lp-e2e-lists">
+              <div>
+                <h3>Encrypted</h3>
+                <ul>
+                  <li>The page itself, on artifacts you choose to encrypt</li>
+                  <li>The key that opens it, wrapped under your account key</li>
+                  <li>Nothing after the <code>#</code> of a shared link ever reaches the site</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Not encrypted</h3>
+                <ul>
+                  <li>Your email, the title, the project</li>
+                  <li>Size, dates, whether and how it is shared</li>
+                  <li>Which addresses opened which link</li>
+                  <li>Plain artifacts, which stay the default</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <p className="lp-note">
+            The script that decrypts is served by this site, pinned by an integrity hash and generated from
+            the open-source CLI package on npm, so it can be read before it runs. That is the one limit no
+            browser-based design removes; <a href={`${REPO}/blob/main/docs/encryption.md`} rel="noopener">docs/encryption.md</a> spells
+            it out.
+          </p>
         </section>
 
         <section className="lp-section lp-pkg" id="npm" aria-labelledby="pkg-title" data-reveal>
@@ -246,7 +298,7 @@ export default function Landing() {
             <dl className="lp-pkg-facts">
               <div><dt>Installs</dt><dd><code>personal-artifact</code>, <code>artifact-publish</code></dd></div>
               <div><dt>Skills for</dt><dd>{TOOLS.join(", ")}</dd></div>
-              <div><dt>Runs on</dt><dd>Node.js 18+ on macOS, Linux, Windows</dd></div>
+              <div><dt>Runs on</dt><dd>Node.js 20+ on macOS, Linux, Windows</dd></div>
               <div><dt>Hosting</dt><dd>Free tier of Vercel and MongoDB Atlas</dd></div>
             </dl>
           </div>

@@ -9,6 +9,7 @@ export default function Confirm({
   title,
   body,
   confirmLabel = "Delete",
+  pendingLabel = "Deleting…",
   requireText = null,
   pending = false,
   onConfirm,
@@ -52,7 +53,7 @@ export default function Confirm({
             Cancel
           </button>
           <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={!ready}>
-            {pending ? "Deleting…" : confirmLabel}
+            {pending ? pendingLabel : confirmLabel}
           </button>
         </div>
       </div>

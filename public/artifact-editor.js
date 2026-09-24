@@ -129,6 +129,7 @@
 
   function boot(options) {
     var slug = options.slug;
+    var encrypted = Boolean(options.encrypted);
     var api = "/api/artifacts/" + encodeURIComponent(slug);
 
     var stage = document.getElementById("ae-stage");
@@ -218,6 +219,18 @@
     function open() {
       if (edit) return;
       say("Opening…");
+      if (encrypted) {
+        // The viewer already turned the ciphertext into words and holds the
+        // key that seals them again. Nothing needs fetching, and nothing on
+        // the server could have answered anyway.
+        var view = window.ArtifactView;
+        if (!view || !view.key) {
+          say("unlock the page first", true);
+          return;
+        }
+        mount(view.html);
+        return;
+      }
       fetch(api, { credentials: "same-origin" })
         .then(function (res) {
           if (!res.ok) throw new Error(String(res.status));
@@ -327,6 +340,17 @@
 
     /* ---------- saving ---------- */
 
+    // What goes over the wire. An encrypted page is sealed under its own
+    // key, unchanged, before it leaves; the server sees a new ciphertext
+    // and iv and nothing else.
+    function payload(next) {
+      if (!encrypted) return Promise.resolve({ html: next });
+      var view = window.ArtifactView;
+      return window.ArtifactCrypto.encrypt(next, view.key).then(function (blob) {
+        return { enc: 1, html: blob.ct, iv: blob.iv, artKeyWrapped: view.wrapped };
+      });
+    }
+
     function save() {
       if (!edit || saving) return;
       var next = serialize(edit.contentDocument);
@@ -335,12 +359,15 @@
       saveButton.disabled = true;
       say("Saving…");
 
-      fetch(api, {
-        method: "PATCH",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ html: next })
-      })
+      payload(next)
+        .then(function (body) {
+          return fetch(api, {
+            method: "PATCH",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+        })
         .then(function (res) {
           return res.json().catch(function () { return {}; }).then(function (body) {
             saving = false;
@@ -352,6 +379,7 @@
             html = next;
             dirty = false;
             saved = true;
+            if (encrypted && window.ArtifactView) window.ArtifactView.html = next;
             say("Saved");
           });
         })
@@ -495,7 +523,14 @@
         openButton.className = "on";
         homeButton.className = "on";
         // Arriving straight into the editor — the pencil in the dashboard.
-        if (/[?&]edit=1(&|$)/.test(location.search)) open();
+        // An encrypted page has to be open before it can be edited.
+        if (/[?&]edit=1(&|$)/.test(location.search)) {
+          if (encrypted && !(window.ArtifactView && window.ArtifactView.key)) {
+            window.addEventListener("artifact-view:ready", function () { open(); }, { once: true });
+          } else {
+            open();
+          }
+        }
       })
       .catch(function () {});
   }

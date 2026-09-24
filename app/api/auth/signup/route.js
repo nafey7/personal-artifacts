@@ -3,6 +3,7 @@ import { hashPassword, looksLikeEmail, normalizeEmail } from "@/lib/auth";
 import { hashCode, makeVerificationCode, VERIFY_TTL_SECONDS } from "@/lib/device";
 import { sendVerificationCode } from "@/lib/email";
 import { clientIp, tooManyAttempts } from "@/lib/ratelimit";
+import { AUTH_VERSION, readAccountKeys, readAuthHash } from "@/lib/keys";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,14 @@ const MIN_PASSWORD = 10;
 // Step one of two. Nothing is created here: what the person typed is parked in
 // a short-lived record and a code goes out by email. /api/auth/verify does the
 // account creation that this route used to do.
+//
+// A v2 signup never sends the password. The browser derives `authHash` from
+// it and sends that instead, together with the account key wrapped twice —
+// once under the password, once under the recovery phrase. The server hashes
+// authHash exactly as it used to hash the password, and stores the blobs it
+// cannot open. The v1 body ({ password }) is still accepted for one release
+// so an older client keeps working; it makes a v1 account that upgrades at
+// its first sign-in.
 export async function POST(request) {
   let body;
   try {
@@ -27,17 +36,28 @@ export async function POST(request) {
   }
 
   const email = normalizeEmail(body.email);
-  const password = typeof body.password === "string" ? body.password : "";
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
 
   if (!looksLikeEmail(email)) {
     return Response.json({ error: "enter a valid email address" }, { status: 400 });
   }
-  if (password.length < MIN_PASSWORD) {
-    return Response.json(
-      { error: `password must be at least ${MIN_PASSWORD} characters` },
-      { status: 400 }
-    );
+
+  let secret;
+  let keys = null;
+  if (body.authVersion === AUTH_VERSION || "authHash" in body) {
+    secret = readAuthHash(body.authHash);
+    if (!secret) return Response.json({ error: "authHash is required" }, { status: 400 });
+    const read = readAccountKeys(body);
+    if (read.error) return Response.json({ error: read.error }, { status: 400 });
+    keys = read.value;
+  } else {
+    secret = typeof body.password === "string" ? body.password : "";
+    if (secret.length < MIN_PASSWORD) {
+      return Response.json(
+        { error: `password must be at least ${MIN_PASSWORD} characters` },
+        { status: 400 }
+      );
+    }
   }
 
   // Signup tells the truth about an address already being taken. That makes the
@@ -62,7 +82,10 @@ export async function POST(request) {
     name,
     // Hashed before it is parked, so a dump of half-finished signups is worth
     // no more than a dump of accounts.
-    passwordHash: await hashPassword(password),
+    passwordHash: await hashPassword(secret),
+    authVersion: keys ? AUTH_VERSION : 1,
+    accountKeyByPassword: keys?.accountKeyByPassword ?? null,
+    accountKeyByRecovery: keys?.accountKeyByRecovery ?? null,
     codeHash: hashCode(code),
     attempts: 0,
     createdAt: now,

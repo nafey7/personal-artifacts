@@ -82,6 +82,7 @@ export async function GET(request) {
         // isPublic, expiresAt, isExpired, hasPassphrase — never the hash.
         ...shareSummary(d, now),
         ...trashSummary(d, now),
+        encrypted: d.enc === 1,
         bytes: d.bytes ?? null,
         createdAt: new Date(d.createdAt).toISOString(),
         updatedAt: new Date(d.updatedAt || d.createdAt).toISOString(),

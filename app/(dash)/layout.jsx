@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { countTrash, loadProjects } from "@/lib/data";
 import Sidebar from "./Sidebar";
+import UnlockDialog from "./UnlockDialog";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,9 @@ export default async function DashboardLayout({ children }) {
     <div className="dash">
       <Sidebar projects={projects} total={total} trash={trash} user={user} />
       <main className="main">{children}</main>
+      {/* Asks for the password once, only when something needs the account
+          key and this browser does not hold it yet. */}
+      <UnlockDialog user={user} />
     </div>
   );
 }

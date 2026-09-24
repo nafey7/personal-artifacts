@@ -49,6 +49,10 @@ response body at `/a/<slug>`. Consequences:
   random suffix, so publishing the same title twice leaves two artifacts. To
   correct a page you already published, pass `--update <slug>` instead: it
   replaces the content and keeps the URL that was handed out.
+- **Artifacts can be encrypted end to end.** With `--encrypted` the CLI
+  seals the page on this machine before uploading; the site stores
+  ciphertext it cannot read and the reader's browser decrypts it. See
+  "Encryption" below for when to use it and how the link changes.
 
 ## Publishing
 
@@ -78,6 +82,7 @@ Flags:
                         or at an ISO date
 --passphrase <text>     share it, and ask for this passphrase before it opens
 --update <slug>         replace something you already published, keeping its URL
+--encrypted             encrypt the page here first; the site never sees the words
 ```
 
 `--project` with a name that does not exist fails, and the error lists the
@@ -108,6 +113,46 @@ expiry. A viewer who has neither sees a small page saying the link has expired
 or asking for the passphrase — never the 404 that a private artifact returns.
 On `--update`, options you don't mention are left as they were; `--expires
 never` clears an expiry.
+
+## Encryption
+
+`--encrypted` makes an artifact the site itself cannot read. The CLI makes a
+key for the page, encrypts the HTML with it on this machine, wraps that key
+under the user's account key (from `~/.artifact-publish.json`, put there when
+the machine was approved), and uploads only ciphertext and wrapped keys. The
+page is decrypted in the reader's browser.
+
+Use it when the user asks for it — "encrypt this", "make sure nobody but me
+can read it", "end to end" — or when the content is plainly sensitive
+(credentials, contracts, medical or financial detail) and they have not said
+otherwise; say in your report that you did. Plain artifacts remain the
+default: an encrypted page cannot be searched by content, and a lost recovery
+phrase loses it for good.
+
+What changes:
+
+- **The link.** With `--public`, the URL the CLI prints ends in `#k=<key>`.
+  Everything after the `#` is the key; the browser never sends it to the
+  site. **Report the whole URL, `#` and all** — a link with that part cut off
+  opens to a page saying the key is missing. Never shorten it, never split it
+  across lines.
+- **With `--passphrase`,** the passphrase unlocks the key instead, so the link
+  carries no `#k=` and is safe to send on its own; the passphrase goes
+  separately, as before.
+- **`get` returns decrypted HTML.** The flow to edit an encrypted page is the
+  same as any other: `get --out`, edit, `--update <slug>`. An update keeps the
+  artifact encrypted under the same key, so links already handed out keep
+  working. `--plain` on an update publishes it in the clear instead; do that
+  only when asked. `get --raw` returns the ciphertext fields as stored.
+- **`list` marks encrypted rows** with a lock after the visibility word.
+- **Verifying with `curl` shows ciphertext,** not the page. That is the
+  artifact being encrypted, not broken: the content is inside `data-ct` on
+  the shell page and decrypts only in a browser with the key.
+
+If `--encrypted` exits 2 saying this machine has no encryption key, the
+person approved the machine without handing the key over. Tell them to run
+`personal-artifact` again and approve with their password — do not fall back
+to publishing the page plain without saying so.
 
 ## Reading back what is published
 
@@ -227,6 +272,10 @@ If `artifact-publish` fails — meaning the command itself exits non-zero:
 - `409 in the trash — restore it first` on `rename` or a share change → the
   artifact is deleted; restore it before changing it.
 - `413` → the page is over 2MB; inline less and link large media.
+- `exit 2` on `--encrypted` or `get` → this machine has no encryption key, or
+  the artifact was encrypted under a different one. See "Encryption".
+- `409 encrypted end to end` on `?format=html` → fetch without that flag, or
+  use `artifact-publish get`, which decrypts.
 - `500` → a problem on the site's side, not with the HTML. Retry; if it
   persists, the site itself needs attention.
 

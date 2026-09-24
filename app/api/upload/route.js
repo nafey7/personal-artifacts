@@ -7,6 +7,7 @@ import { hashPassword } from "@/lib/auth";
 import { readExpiry, readPassphrase, shareSummary } from "@/lib/share";
 import { stamp } from "@/lib/data";
 import { LIVE } from "@/lib/trash";
+import { encryptionSummary, readEncryption } from "@/lib/keys";
 
 export const dynamic = "force-dynamic";
 
@@ -14,24 +15,32 @@ export const dynamic = "force-dynamic";
 // and then fetches its own URL without a credential gets a 404 by design; the
 // only way that reads as intended rather than as an outage is if the upload
 // that produced the URL already said what to expect.
-function noteFor(share, origin) {
+function noteFor(share, origin, encrypted) {
+  // The server never holds the key, so it cannot print a link that opens.
+  // The CLI adds the key after the # itself; this just says that it must.
+  const e2e = encrypted
+    ? " It is encrypted end to end: the site stores ciphertext it cannot read, and the page decrypts in the browser."
+    : "";
   if (!share.isPublic) {
-    return `private — it opens for you in a browser you are signed in to, or with this same API token as an Authorization: Bearer header. Fetching it without either returns 404, which is expected and not an error. Share it from ${origin}/ to get a link anyone can open.`;
+    return `private — it opens for you in a browser you are signed in to, or with this same API token as an Authorization: Bearer header. Fetching it without either returns 404, which is expected and not an error. Share it from ${origin}/ to get a link anyone can open.${e2e}`;
   }
 
   const who = share.hasPassphrase
     ? "anyone with this link and the passphrase can open it; the page asks for the passphrase first"
-    : "anyone with this link can open it";
+    : encrypted
+      ? "anyone with the full link — including everything after the # — can open it; without the part after # they see only ciphertext"
+      : "anyone with this link can open it";
   const until = share.expiresAt
     ? ` until ${stamp(share.expiresAt)} UTC, after which the link goes private again`
     : "";
-  return `public — ${who}${until}. Mark it Private in your dashboard to close it sooner.`;
+  return `public — ${who}${until}. Mark it Private in your dashboard to close it sooner.${e2e}`;
 }
 
 // The response for a saved artifact. `share` is isPublic, expiresAt,
 // isExpired and hasPassphrase — never the passphrase or its hash.
 function reply(doc, origin, { updated, project, status }) {
   const share = shareSummary(doc);
+  const encrypted = doc.enc === 1;
   return Response.json(
     {
       slug: doc.slug,
@@ -40,7 +49,8 @@ function reply(doc, origin, { updated, project, status }) {
       project,
       visibility: doc.visibility,
       ...share,
-      note: noteFor(share, origin),
+      encrypted,
+      note: noteFor(share, origin, encrypted),
       manageUrl: `${origin}/`,
     },
     { status }
@@ -73,6 +83,25 @@ export async function POST(request) {
   const html = typeof body.html === "string" ? body.html : "";
   if (!title || !html) {
     return Response.json({ error: "title and html are required" }, { status: 400 });
+  }
+
+  // End-to-end encryption: `enc: 1`, the `iv`, and the artifact key wrapped
+  // under the account key arrive together, and `html` is then base64url
+  // ciphertext this server stores without ever being able to read. A body
+  // that says nothing about encryption publishes in the clear, and on
+  // --update that replaces an encrypted page with a plain one — the CLI keeps
+  // an encrypted artifact encrypted on its own.
+  const encryption = readEncryption(body);
+  if (encryption.error) return Response.json({ error: encryption.error }, { status: 400 });
+  const enc = encryption.present && encryption.value.enc === 1 ? encryption.value : null;
+  if (encryption.present && !enc && encryption.value.artKeyByPassphrase) {
+    return Response.json(
+      { error: "artKeyByPassphrase only makes sense with enc, iv and artKeyWrapped" },
+      { status: 400 }
+    );
+  }
+  if (enc && !/^[A-Za-z0-9_-]+$/.test(html)) {
+    return Response.json({ error: "an encrypted html must be base64url ciphertext" }, { status: 400 });
   }
 
   const explicitVisibility =
@@ -157,16 +186,32 @@ export async function POST(request) {
   // second one and leave the first behind under a link already handed out.
   const replacing = typeof body.slug === "string" ? body.slug.trim() : "";
   if (replacing) {
-    const set = { title, html, bytes, visibility, updatedAt: new Date() };
+    const set = {
+      title,
+      html,
+      bytes,
+      visibility,
+      updatedAt: new Date(),
+      enc: enc ? 1 : null,
+      iv: enc ? enc.iv : null,
+      artKeyWrapped: enc ? enc.artKeyWrapped : null,
+      // Kept unless the body sets or clears it, like the passphrase itself.
+      ...(enc && enc.artKeyByPassphrase !== undefined ? { artKeyByPassphrase: enc.artKeyByPassphrase } : {}),
+      ...(!enc ? { artKeyByPassphrase: null } : {}),
+    };
     if (body.project) set.projectId = projectId;
     // Share options the caller mentioned are applied; ones it didn't are left
     // as they were, so re-publishing a page doesn't quietly drop its
     // passphrase. Going private clears both, as the dashboard does.
     if (expiry.present) set.shareExpiresAt = expiry.value;
-    if (pass.present) set.sharePassHash = sharePassHash;
+    if (pass.present) {
+      set.sharePassHash = sharePassHash;
+      if (!sharePassHash) set.artKeyByPassphrase = null;
+    }
     if (visibility === "private") {
       set.shareExpiresAt = null;
       set.sharePassHash = null;
+      set.artKeyByPassphrase = null;
     }
 
     const updated = await col.findOneAndUpdate(
@@ -224,6 +269,12 @@ export async function POST(request) {
     visibility,
     shareExpiresAt,
     sharePassHash,
+    // Present and null on a plain artifact, so every read that asks
+    // { enc: 1 } or { enc: null } matches without a special case.
+    enc: enc ? 1 : null,
+    iv: enc ? enc.iv : null,
+    artKeyWrapped: enc ? enc.artKeyWrapped : null,
+    artKeyByPassphrase: enc && enc.artKeyByPassphrase ? enc.artKeyByPassphrase : null,
     bytes,
     // Set from the start so the TTL index has a field to look at, and every
     // read filter matches without a special case for older documents.

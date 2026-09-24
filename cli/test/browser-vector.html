@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>artifact-crypto browser check</title>
+<style>
+  body { font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+  li { margin: .25rem 0; }
+  .ok { color: #1a7f3c; } .bad { color: #b3261e; }
+</style>
+</head>
+<body>
+<!-- Opens the generated browser copy and runs the same fixed vectors that
+     cli/test/crypto.test.js runs in Node, so the two can be compared by eye.
+     Open this file directly from the repository, or serve the repo root.
+     Every line should read "ok". -->
+<h1>artifact-crypto.v1.js in this browser</h1>
+<ul id="out"></ul>
+<script src="../../public/artifact-crypto.v1.js"></script>
+<script>
+(async () => {
+  const C = window.ArtifactCrypto;
+  const out = document.getElementById("out");
+  const say = (name, ok, detail) => {
+    const li = document.createElement("li");
+    li.className = ok ? "ok" : "bad";
+    li.textContent = `${ok ? "ok" : "FAIL"} — ${name}${detail ? `: ${detail}` : ""}`;
+    out.appendChild(li);
+  };
+  const bytes = (n, fill) => new Uint8Array(n).map((_, i) => (fill === undefined ? i : fill));
+
+  try {
+    const key = await C.importKey(bytes(32));
+    const text = await C.decrypt({ v: 1, iv: "AAECAwQFBgcICQoL", ct: "E2qzO7SQq3jmYfX53p4WTeW5_yhMGRz3iC98dsnUGuRIGqg" }, key);
+    say("fixed AES-GCM vector", text === "The quick brown fox", text);
+
+    const { authHash } = await C.split(await C.deriveFromPassword("correct horse battery", "Test@Example.com"));
+    say("fixed password vector", authHash === "OP1ErEf6MgahNYBzvZ36tFSsGEB3vENn0tqf_41Tg0M", authHash);
+
+    const words = await C.phrase.fromEntropy(bytes(16, 0xff));
+    say("BIP39 vector", words.join(" ") === "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong", words.join(" "));
+    say("wordlist size", C.WORDLIST.length === 2048, String(C.WORDLIST.length));
+
+    const account = await C.newKey();
+    const art = await C.newKey();
+    const wrapped = await C.wrap(art, account);
+    const back = await C.unwrap(wrapped, account);
+    say("wrap/unwrap", C.b64u.encode(await C.exportKey(back)) === C.b64u.encode(await C.exportKey(art)));
+
+    const pair = await C.ecdh.generate();
+    const secret = C.randomBytes(32);
+    const sealed = await C.ecdh.seal(secret, pair.publicKey);
+    const opened = await C.ecdh.open(sealed, pair.privateKey, pair.publicKey);
+    say("ECDH seal/open", C.b64u.encode(opened) === C.b64u.encode(secret));
+
+    const pp = await C.wrapWithPassphrase(art, "salt marsh heron");
+    const ppBack = await C.unwrapWithPassphrase(pp, "salt marsh heron");
+    say("passphrase wrap/unwrap", C.b64u.encode(await C.exportKey(ppBack)) === C.b64u.encode(await C.exportKey(art)));
+  } catch (err) {
+    say("threw", false, err && err.message);
+  }
+})();
+</script>
+</body>
+</html>

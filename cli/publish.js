@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join, basename } from "path";
 import { VERSION, staleSkills } from "./skills.js";
+import { b64u, decrypt, encrypt, exportKey, importKey, newKey, unwrap, wrap, wrapWithPassphrase } from "./crypto.js";
 
 const argv = process.argv.slice(2);
 
@@ -19,6 +20,10 @@ if (argv.includes("--help") || argv.includes("-h")) {
     --passphrase <text>    share it, and ask for this passphrase before opening
                            (or set ARTIFACT_PASSPHRASE to keep it out of shell history)
     --update <slug>        replace an artifact you already published, keeping its URL
+    --encrypted            encrypt the page here before it is uploaded; the site
+                           stores ciphertext it cannot read (see below)
+    --plain                on --update of an encrypted artifact: publish it in the
+                           clear instead of keeping it encrypted
 
 Prints the URL on stdout and a line about who can open it on stderr, so
 piping still gets you just the URL.
@@ -27,10 +32,19 @@ piping still gets you just the URL.
 link behaves. The owner is never asked for the passphrase and never locked
 out by the expiry.
 
+--encrypted seals the page under a key made here, and that key under your
+account key from ~/.artifact-publish.json. The site stores ciphertext and
+wrapped keys it cannot open; the page is decrypted in the reader's browser.
+With --public the printed URL carries the key after the #, which the browser
+never sends to the site — pass the whole link on, # and all. With
+--passphrase the passphrase unlocks the key instead and the link carries
+nothing. Updating an encrypted artifact keeps it encrypted under the same key
+(so links handed out keep working) unless you pass --plain.
+
 Read back what you have published:
 
   artifact-publish list [--project <name>] [--search <text>] [--limit <n>] [--json]
-  artifact-publish get <slug> [--out <file>] [--json]
+  artifact-publish get <slug> [--out <file>] [--json] [--raw]
   artifact-publish projects [--json]
 
 Change or remove what you have published:
@@ -47,8 +61,10 @@ HTML, publish over it with --update <slug> instead.
 
 \`list\` prints one artifact per line: slug, updated date, who can open it,
 project, title. \`get\` prints the artifact's HTML (or writes it to --out) so
-you can edit it and publish it back with --update. \`projects\` lists your
-project folders. --json prints the API response instead.
+you can edit it and publish it back with --update — decrypted, for an
+encrypted artifact, unless you pass --raw. \`projects\` lists your project
+folders. --json prints the API response instead. \`list\` marks encrypted
+artifacts with a lock.
 
 New artifacts are private. A private URL returns 404 unless the request
 carries your browser session or your API token as an Authorization: Bearer
@@ -70,6 +86,9 @@ let limit = "";
 let outFile = "";
 let permanent = false;
 let json = false;
+let encrypted = false;
+let plain = false;
+let raw = false;
 const positional = [];
 
 for (let i = 0; i < argv.length; i++) {
@@ -116,6 +135,12 @@ for (let i = 0; i < argv.length; i++) {
     permanent = true;
   } else if (arg === "--json") {
     json = true;
+  } else if (arg === "--encrypted" || arg === "--encrypt" || arg === "-E") {
+    encrypted = true;
+  } else if (arg === "--plain") {
+    plain = true;
+  } else if (arg === "--raw") {
+    raw = true;
   } else {
     positional.push(arg);
   }
@@ -123,6 +148,10 @@ for (let i = 0; i < argv.length; i++) {
 
 if (createProject && !project) {
   console.error("--new-project needs a name");
+  process.exit(1);
+}
+if (encrypted && plain) {
+  console.error("--encrypted and --plain contradict each other");
   process.exit(1);
 }
 
@@ -157,6 +186,49 @@ try {
 }
 
 const site = String(config.site || "").replace(/\/$/, "");
+
+// The account key, from the browser that approved this machine (or the
+// recovery phrase, on a headless box). It never goes over the wire: it
+// wraps each artifact's own key, and opens them again for `get`.
+let accountKey = null;
+async function needAccountKey(why) {
+  if (accountKey) return accountKey;
+  if (!config.accountKey) {
+    console.error(`${why} needs your encryption key, and this machine does not have it`);
+    console.error("run `personal-artifact` again and approve with your password to fetch it");
+    process.exit(2);
+  }
+  try {
+    accountKey = await importKey(b64u.decode(String(config.accountKey)));
+  } catch {
+    console.error(`the accountKey in ${configPath} is not valid — run \`personal-artifact\` again to fetch it`);
+    process.exit(2);
+  }
+  return accountKey;
+}
+
+// The artifact key of an encrypted artifact, opened with the account key.
+async function openArtifactKey(a) {
+  const key = await needAccountKey("reading an encrypted artifact");
+  try {
+    return await unwrap(a.artKeyWrapped, key);
+  } catch {
+    console.error(`could not open the key of ${a.slug} — it was encrypted under a different account key`);
+    console.error("(a password reset without the recovery phrase does this; the page cannot be recovered)");
+    process.exit(2);
+  }
+}
+
+// Ciphertext back to the page, or a clear message about why not.
+async function decryptArtifact(a) {
+  const key = await openArtifactKey(a);
+  try {
+    return await decrypt({ v: 1, iv: a.iv, ct: a.html }, key);
+  } catch {
+    console.error(`could not decrypt ${a.slug} — the stored ciphertext does not match its key`);
+    process.exit(2);
+  }
+}
 
 // One call to the site. Exits with the server's message on any failure, so
 // each command below only has to deal with the happy path.
@@ -200,11 +272,13 @@ function day(iso) {
   return String(iso).slice(0, 10);
 }
 
-// Who can open an artifact, in one word for the list.
+// Who can open an artifact, in one word for the list. A lock marks one the
+// site itself cannot read.
 function who(a) {
-  if (!a.isPublic) return "private";
-  if (a.isExpired) return "expired";
-  return a.hasPassphrase ? "passphrase" : "public";
+  const lock = a.encrypted ? "🔒" : "";
+  if (!a.isPublic) return `private${lock}`;
+  if (a.isExpired) return `expired${lock}`;
+  return `${a.hasPassphrase ? "passphrase" : "public"}${lock}`;
 }
 
 /* ---------- subcommands ---------- */
@@ -268,14 +342,19 @@ if (command === "get") {
     verb: "fetching artifact",
   });
   const a = data.artifact;
+  // What `get` hands back is the page. For an encrypted artifact that means
+  // opening it here; --raw hands back the ciphertext fields as stored.
+  const html = a.encrypted && !raw ? await decryptArtifact(a) : a.html;
   if (json) {
-    console.log(JSON.stringify(data, null, 2));
+    console.log(JSON.stringify(raw ? data : { artifact: { ...a, html } }, null, 2));
   } else if (outFile) {
-    writeFileSync(outFile, a.html);
+    writeFileSync(outFile, html);
     console.log(outFile);
-    console.error(`${a.title} (${a.slug}) — ${a.isPublic ? "public" : "private"}, edit and publish back with --update ${a.slug}`);
+    console.error(
+      `${a.title} (${a.slug}) — ${a.isPublic ? "public" : "private"}${a.encrypted ? ", encrypted" : ""}, edit and publish back with --update ${a.slug}`
+    );
   } else {
-    process.stdout.write(a.html);
+    process.stdout.write(html);
   }
   process.exit(0);
 }
@@ -385,7 +464,7 @@ if (command === "rename") {
 const [file, ...rest] = positional;
 if (!file) {
   console.error(
-    'usage: artifact-publish ./artifact.html "Title" [--project "Folder" | --new-project "Folder"] [--public] [--expires 7d] [--passphrase <text>] [--update <slug>]\n' +
+    'usage: artifact-publish ./artifact.html "Title" [--project "Folder" | --new-project "Folder"] [--public] [--expires 7d] [--passphrase <text>] [--update <slug>] [--encrypted]\n' +
       "       artifact-publish list | get <slug> | projects | rename <slug> <title> | delete <slug> | trash | restore <slug>"
   );
   process.exit(1);
@@ -417,7 +496,37 @@ if (sharing) visibility = "public";
 const html = readFileSync(file, "utf8");
 const title = rest.join(" ").trim() || basename(file).replace(/\.html?$/i, "");
 
+// An artifact that is already encrypted stays encrypted under the same key
+// when it is updated, so every link handed out keeps opening. --plain is the
+// only way out, and --encrypted on a plain one is the way in.
+let artKey = null;
+if (updateSlug && !plain) {
+  const existing = await api(`/api/artifacts/${encodeURIComponent(updateSlug)}?meta=1`, {
+    verb: "checking artifact",
+  });
+  if (existing.artifact.encrypted) {
+    artKey = await openArtifactKey(existing.artifact);
+    encrypted = true;
+  }
+}
+if (encrypted && !artKey) {
+  await needAccountKey("--encrypted");
+  artKey = await newKey();
+}
+
 const payload = { title, html };
+if (artKey) {
+  // Sealed here, before anything leaves. The site gets ciphertext, the iv,
+  // and the artifact key wrapped under the account key it has never seen.
+  const blob = await encrypt(html, artKey);
+  payload.enc = 1;
+  payload.html = blob.ct;
+  payload.iv = blob.iv;
+  payload.artKeyWrapped = await wrap(artKey, await needAccountKey("--encrypted"));
+  // A passphrase on an encrypted link also unlocks the key: wrap it under
+  // the passphrase so the link needs no key after the #.
+  if (passphrase) payload.artKeyByPassphrase = await wrapWithPassphrase(artKey, passphrase);
+}
 if (project) payload.project = project;
 if (createProject) payload.createProject = true;
 if (visibility) payload.visibility = visibility;
@@ -436,10 +545,20 @@ const result = await api("/api/upload", { method: "POST", body: payload, verb: "
 // The URL alone on stdout, so `artifact-publish ... | pbcopy` still works. Who
 // can open it goes to stderr, because a caller that doesn't know the page is
 // private reads the 404 it gets back as a broken site.
-console.log(result.url);
+//
+// An encrypted link carries its key after the #, unless a passphrase is the
+// key. The browser never sends that part to the site — and neither did we.
+let url = result.url;
+if (artKey && result.isPublic && !result.hasPassphrase) {
+  url += `#k=${b64u.encode(await exportKey(artKey))}`;
+}
+console.log(url);
 if (result.project?.created) {
   console.error(`Created project "${result.project.name}"`);
 }
 if (result.note) {
   console.error(`${result.updated ? "Updated" : "Published"}, ${result.note}`);
+}
+if (artKey && result.isPublic && !result.hasPassphrase) {
+  console.error("Pass the whole link on, including everything after the # — that part is the key, and it never reaches the site.");
 }

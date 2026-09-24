@@ -39,7 +39,12 @@ export default async function CliAuth({ searchParams }) {
 
   return (
     <div className="authwrap">
-      <ApproveDevice userCode={userCode} device={doc.device} user={user} />
+      <ApproveDevice
+        userCode={userCode}
+        device={doc.device}
+        user={user}
+        cliPublicKey={doc.cliPublicKey || null}
+      />
     </div>
   );
 }

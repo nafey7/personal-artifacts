@@ -19,9 +19,13 @@ personal-artifact
 
 That asks nothing. It prints the site it will publish to, then opens your
 browser — sign in, or sign up, it works the same, and approve the machine. The
-token travels straight to the CLI, so you never copy or paste one. Then it:
+token travels straight to the CLI, so you never copy or paste one. Your
+encryption key comes with it: the CLI makes a key pair for the occasion, the
+browser seals the account key to it with your password, and the site relays a
+blob it cannot open. Both ends print the same fingerprint so you can check
+they match. Then it:
 
-- writes `~/.artifact-publish.json` (mode `0600`)
+- writes `~/.artifact-publish.json` (mode `0600`) with the token and the key
 - installs the publishing skill for the coding tools you actually have
 
 It writes nothing for tools you have not installed — no vendor directory is
@@ -34,7 +38,13 @@ open, so create a token on the **Settings** page and pass it directly:
 ```
 personal-artifact --token pa_...        # skip the browser
 personal-artifact --no-browser          # print the URL instead of opening it
+personal-artifact --token pa_... --recovery-phrase "twelve words ..."
+                                        # and unlock the encryption key from
+                                        # the recovery phrase, since no
+                                        # browser can hand it over
 ```
+
+Needs Node.js 20 or newer.
 
 ## Upgrading
 
@@ -74,6 +84,8 @@ artifact-publish ./page.html "Load Test Report" --public
 artifact-publish ./page.html "Load Test Report" --expires 7d
 artifact-publish ./page.html "Load Test Report" --passphrase "salt marsh heron"
 artifact-publish ./page.html "Load Test Report" --update load-test-report-3f9a1c
+artifact-publish ./page.html "Load Test Report" --encrypted
+artifact-publish ./page.html "Load Test Report" --encrypted --public
 ```
 
 The URL goes to stdout, so piping it still works; one line saying who can open
@@ -95,8 +107,40 @@ it goes to stderr.
   URL, instead of minting a second one. Share options you don't mention stay
   as they were; `--expires never` clears an expiry.
 
+- `--encrypted` seals the page on your machine before it is uploaded. See
+  **Encrypted end to end** below.
+
 Both `--expires` and `--passphrase` imply `--public`. You, the owner, are never
 asked for the passphrase and never locked out by the expiry.
+
+## Encrypted end to end
+
+`--encrypted` makes an artifact the site cannot read — not its operator, not
+its database host, not anyone with a copy of the database. The CLI makes a
+random key for the page, encrypts the HTML with it here, wraps that key under
+your account key, and uploads ciphertext and wrapped keys only. The page is
+decrypted in the reader's browser by a script the site serves with an
+integrity hash, and which is generated from `crypto.js` in this package so
+you can read the code that runs.
+
+- A private encrypted artifact opens for you as usual; your browser holds the
+  account key after you sign in.
+- Shared with `--public`, the printed link ends in `#k=<key>`. The part after
+  the `#` never reaches the site. Send the whole link. Anyone with it can read
+  the page; making it private stops the site serving the ciphertext, and
+  **Re-encrypt** in the share sheet changes the key so old links stop working.
+- Shared with `--passphrase`, the passphrase unlocks the key instead, and the
+  link carries none.
+- `get` decrypts. `--update` keeps the artifact encrypted under the same key
+  unless you pass `--plain`. `list` marks encrypted rows with a lock.
+- What the site still sees: your email, the title, the project, the size,
+  dates, visibility, and who opened which link. Titles stay in the clear so
+  search and the dashboard keep working.
+
+The account key is made in your browser when you first sign in, and shown
+once as a twelve-word recovery phrase. Lose the phrase and forget the password
+and the encrypted artifacts are gone; nobody can recover them, which is the
+point. Settings can make a new phrase at any time.
 
 ## Read back
 
@@ -114,8 +158,9 @@ artifact-publish get <slug>                        # the HTML on stdout
 ```
 
 `list` prints one line per artifact — slug, last updated, `public` or
-`private`, project, title. Add `--json` to any of them for the raw API
-response.
+`private` (with a lock for encrypted ones), project, title. Add `--json` to
+any of them for the raw API response. `get` decrypts an encrypted artifact;
+`--raw` returns the ciphertext fields as stored.
 
 ## Private by default
 

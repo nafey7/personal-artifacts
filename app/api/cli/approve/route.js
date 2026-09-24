@@ -1,6 +1,7 @@
 import { pendingAuth, tokens } from "@/lib/mongo";
 import { requireUser } from "@/lib/guard";
 import { mintToken } from "@/lib/tokens";
+import { isBlob } from "@/cli/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,20 @@ export async function POST(request) {
   const userCode = typeof body.userCode === "string" ? body.userCode.trim().toUpperCase() : "";
   const approve = body.approve !== false;
   if (!userCode) return Response.json({ error: "userCode is required" }, { status: 400 });
+
+  // The account key, sealed in the browser to the CLI's public key. Relayed
+  // as-is: this server can check its shape and nothing more.
+  let accountKeySealed = null;
+  if (body.accountKeySealed !== undefined && body.accountKeySealed !== null) {
+    if (!isBlob(body.accountKeySealed, ["epk", "iv", "ct"])) {
+      return Response.json({ error: "accountKeySealed is not a valid sealed blob" }, { status: 400 });
+    }
+    const { epk, iv, ct } = body.accountKeySealed;
+    if ([epk, iv, ct].some((f) => f.length > 200)) {
+      return Response.json({ error: "accountKeySealed is too large" }, { status: 400 });
+    }
+    accountKeySealed = { v: 1, epk, iv, ct };
+  }
 
   const col = await pendingAuth();
   const doc = await col.findOne({ userCode, status: "pending" });
@@ -56,8 +71,15 @@ export async function POST(request) {
   // Held only until the waiting CLI collects it, which deletes the row.
   await col.updateOne(
     { _id: doc._id },
-    { $set: { status: "approved", secret, user: { email: user.email, name: user.name } } }
+    {
+      $set: {
+        status: "approved",
+        secret,
+        accountKeySealed: doc.cliPublicKey ? accountKeySealed : null,
+        user: { email: user.email, name: user.name },
+      },
+    }
   );
 
-  return Response.json({ approved: true, device: doc.device });
+  return Response.json({ approved: true, device: doc.device, keyHandedOver: Boolean(doc.cliPublicKey && accountKeySealed) });
 }

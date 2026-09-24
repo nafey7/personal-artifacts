@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "child_process";
 import { homedir, hostname, userInfo } from "os";
 import { join } from "path";
 import { CONFIG, SKILL_DIRS, detect, plan, writeSkill } from "./skills.js";
+import { b64u, ecdh, phrase, unwrap, exportKey } from "./crypto.js";
 
 const DEFAULT_SITE = "https://artifacts.pallason.com";
 
@@ -26,14 +27,21 @@ if (argv.includes("--help") || argv.includes("-h")) {
   personal-artifact --token <tok>   skip the browser; use a token directly
   personal-artifact --no-browser    print the URL instead of opening it
   personal-artifact --yes           don't ask before writing (or removing) files
+  personal-artifact --recovery-phrase "<12 words>"
+                                    with --token: unlock your encryption key
+                                    from the recovery phrase (or set
+                                    ARTIFACT_RECOVERY_PHRASE)
 
   personal-artifact uninstall       remove every file this program wrote,
                                     then uninstall the npm package itself
     --keep-package                  remove the files but leave the package
 
 Signing in opens your browser, where you approve this machine. The token is
-sent straight to this program — you never copy or paste it. On a headless box
-use --token with a token from <site>/settings.
+sent straight to this program — you never copy or paste it. Your encryption
+key comes with it, sealed in the browser to a key pair this program makes for
+the occasion; the site relays a blob it cannot open. Both ends print the same
+fingerprint so you can see they match. On a headless box use --token with a
+token from <site>/settings, and --recovery-phrase to unlock the key.
 
 Writes ~/.artifact-publish.json, and installs the publishing skill for the
 coding tools you already have. Tools you have not installed are left alone.
@@ -88,7 +96,7 @@ const ATTEMPTS = 3; // three ten-minute windows
 const START_TRIES = 3;
 const START_PAUSE_MS = 3000;
 
-async function startSignIn(site) {
+async function startSignIn(site, cliPublicKey) {
   let lastError;
   for (let i = 0; i < START_TRIES; i++) {
     if (i > 0) await wait(START_PAUSE_MS);
@@ -97,7 +105,7 @@ async function startSignIn(site) {
       res = await fetch(`${site}/api/cli/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ device: deviceName() }),
+        body: JSON.stringify({ device: deviceName(), cliPublicKey }),
       });
       if (res.ok) return await res.json();
     } catch (err) {
@@ -114,7 +122,10 @@ async function startSignIn(site) {
 }
 
 async function requestApproval(site, { noBrowser, again }) {
-  const { userCode, deviceCode, verifyUrl, expiresIn, pollInterval } = await startSignIn(site);
+  // A fresh key pair per request. The private half never leaves this
+  // process; the browser seals the account key to the public half.
+  const pair = await ecdh.generate();
+  const { userCode, deviceCode, verifyUrl, expiresIn, pollInterval } = await startSignIn(site, pair.publicKey);
 
   const opened = noBrowser ? false : openBrowser(verifyUrl);
   if (again) {
@@ -122,7 +133,7 @@ async function requestApproval(site, { noBrowser, again }) {
   }
   console.log(opened ? "\nOpening your browser to sign in…" : "\nTo sign in, open this in your browser:");
   console.log(`  ${verifyUrl}`);
-  console.log(`\n  code: ${userCode}   machine: ${deviceName()}`);
+  console.log(`\n  code: ${userCode}   machine: ${deviceName()}   key fingerprint: ${pair.fingerprint}`);
   process.stdout.write("\nWaiting for you to approve… ");
 
   const deadline = Date.now() + expiresIn * 1000;
@@ -147,7 +158,16 @@ async function requestApproval(site, { noBrowser, again }) {
 
     if (data.status === "approved") {
       console.log("done.");
-      return { token: data.token, user: data.user };
+      let accountKey = null;
+      if (data.accountKeySealed) {
+        try {
+          accountKey = b64u.encode(await ecdh.open(data.accountKeySealed, pair.privateKey, pair.publicKey));
+        } catch {
+          console.log("The encryption key the browser sent could not be opened — it was sealed to a different request.");
+          console.log("Run this again to get it; the token still works for plain artifacts.");
+        }
+      }
+      return { token: data.token, user: data.user, accountKey };
     }
     if (data.status === "denied") throw new Error("refused in the browser — nothing was written");
     if (data.status === "expired") break;
@@ -161,6 +181,46 @@ async function signInWithBrowser(site, { noBrowser }) {
     if (result) return result;
   }
   throw new Error("gave up waiting for approval — run the command again when you have a moment");
+}
+
+/* ---------- the key, with no browser to hand it over ---------- */
+
+// --token gets a machine in without a browser, so nothing can seal the key
+// to it. The recovery phrase opens the same key from the wrapped copy the
+// site keeps — the phrase is used here and never sent. Returns the key as
+// base64url, or null with a note when there is no way to get it.
+async function unlockHeadless(site, token, { ask, existing }) {
+  let keys;
+  try {
+    const res = await fetch(`${site}/api/auth/keys`, { headers: { Authorization: `Bearer ${token}` } });
+    keys = res.ok ? await res.json() : null;
+  } catch {
+    keys = null;
+  }
+  if (!keys || keys.authVersion !== 2 || !keys.accountKeyByRecovery) {
+    console.log("This account has no encryption keys yet — sign in on the site once to make them.");
+    return null;
+  }
+  if (existing.accountKey && !flag("recovery-phrase") && !process.env.ARTIFACT_RECOVERY_PHRASE) {
+    return existing.accountKey; // already unlocked on a previous run
+  }
+
+  let words = flag("recovery-phrase") || process.env.ARTIFACT_RECOVERY_PHRASE || "";
+  if (!words) {
+    words = await ask(
+      "\nRecovery phrase, to unlock your encryption key on this machine\n(twelve words; leave blank to skip and publish plain artifacts only): ",
+      ""
+    );
+  }
+  if (!words.trim()) return null;
+
+  try {
+    const key = await unwrap(keys.accountKeyByRecovery, await phrase.toKey(words));
+    return b64u.encode(await exportKey(key));
+  } catch (err) {
+    console.error(`Could not unlock the key: ${err.message || "that phrase does not open this account"}`);
+    return null;
+  }
 }
 
 /* ---------- undoing all of it ---------- */
@@ -282,6 +342,7 @@ async function main() {
 
     let token = flag("token");
     let who;
+    let accountKey = null;
 
     if (token) {
       // Headless path: verify the pasted token rather than trusting it.
@@ -306,9 +367,10 @@ async function main() {
         return;
       }
       console.log(`ok — ${who.name ? `${who.name} <${who.email}>` : who.email}`);
+      accountKey = await unlockHeadless(site, token, { ask, existing });
     } else {
       try {
-        ({ token, user: who } = await signInWithBrowser(site, {
+        ({ token, user: who, accountKey } = await signInWithBrowser(site, {
           noBrowser: argv.includes("--no-browser"),
         }));
       } catch (err) {
@@ -317,6 +379,16 @@ async function main() {
         return;
       }
       console.log(`Signed in as ${who.name ? `${who.name} <${who.email}>` : who.email}`);
+    }
+
+    // A machine that was set up before had a key; keep it unless a new one
+    // arrived, so re-running to add a tool never loses it.
+    if (!accountKey && existing.accountKey) accountKey = existing.accountKey;
+    if (accountKey) {
+      console.log("Encryption key: saved — this machine can publish with --encrypted.");
+    } else {
+      console.log("Encryption key: none — this machine publishes plain artifacts only.");
+      console.log("  (approve with your password next time, or use --token with --recovery-phrase)");
     }
 
     const tools = detect();
@@ -348,7 +420,9 @@ async function main() {
       return;
     }
 
-    writeFileSync(CONFIG, `${JSON.stringify({ site, token }, null, 2)}\n`, { mode: 0o600 });
+    const config = { site, token };
+    if (accountKey) config.accountKey = accountKey;
+    writeFileSync(CONFIG, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
     for (const t of targets) writeSkill(t);
 
     console.log("\nDone.");

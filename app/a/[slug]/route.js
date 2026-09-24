@@ -3,6 +3,7 @@ import { currentUser, verifyPassword } from "@/lib/auth";
 import { ownerOfToken } from "@/lib/tokens";
 import { clearAttempts, clientIp, tooManyAttempts } from "@/lib/ratelimit";
 import { grantCookie, grantMatches, hasExpired, readGrant } from "@/lib/share";
+import { INTEGRITY } from "@/lib/integrity";
 
 export const dynamic = "force-dynamic";
 
@@ -175,6 +176,15 @@ sets a cookie for this artifact's path; present it on the next GET.`;
 
 function askPassphrase(request, doc, { error = "", status = 401 } = {}) {
   const title = forText(doc.title);
+  // On an encrypted page the passphrase is also key material. The server's
+  // gate still checks it, but the viewer needs the words themselves to open
+  // the page, so the form leaves them in this browser's sessionStorage for
+  // the viewer to collect on the next load — one prompt, not two.
+  const handoff = doc.enc === 1
+    ? `<script>document.querySelector("form").addEventListener("submit", function () {
+    try { sessionStorage.setItem(${JSON.stringify(`artifact-pass:${doc.slug}`)}, this.passphrase.value); } catch (e) {}
+  });</${"script"}>`
+    : "";
   return respond(request, {
     status,
     text: error ? `${error}\n\n${PASSPHRASE_TEXT}` : PASSPHRASE_TEXT,
@@ -189,7 +199,8 @@ function askPassphrase(request, doc, { error = "", status = 401 } = {}) {
     <button type="submit">Open</button>
   </form>
   ${error ? `<p class="bad" role="alert">${forText(error)}</p>` : ""}
-  <p class="foot">Don't have it? Ask whoever sent you the link.</p>`
+  <p class="foot">Don't have it? Ask whoever sent you the link.</p>
+  ${handoff}`
     ),
   });
 }
@@ -218,6 +229,53 @@ function withBridge(html) {
 // shown until the reader turns out to own the artifact. Editing is a mode of
 // this page rather than a page of its own, so opening it swaps the frame
 // without the artifact — or the reader's place in it — being reloaded.
+// An encrypted artifact: the same shell, but the frame starts empty and the
+// ciphertext and wrapped keys sit in data- attributes for the viewer script
+// to open in the browser. Both scripts are pinned by hash: a deploy that
+// changed either one would not run in a reader's browser without the hash in
+// lib/integrity.js — in the open source repository — changing with it.
+function encryptedStage(doc) {
+  return `<div id="ae-stage"
+    data-enc="1"
+    data-slug="${forAttribute(doc.slug)}"
+    data-iv="${forAttribute(doc.iv)}"
+    data-wrapped="${forAttribute(JSON.stringify(doc.artKeyWrapped))}"
+    data-passphrase="${forAttribute(doc.artKeyByPassphrase ? JSON.stringify(doc.artKeyByPassphrase) : "")}"
+    data-ct="${forAttribute(doc.html)}">
+  <div id="ae-lock">
+    <div class="ae-lock-card">
+      <p id="ae-lock-msg">Decrypting…</p>
+      <p id="ae-lock-hint" hidden></p>
+      <form id="ae-lock-form" hidden>
+        <label id="ae-lock-label" for="ae-lock-field">Passphrase</label>
+        <input id="ae-lock-field" type="password" required>
+        <button id="ae-lock-go" type="submit">Open</button>
+      </form>
+      <p class="ae-lock-foot">Encrypted end to end. The site stores only ciphertext; this page is decrypted here, in your browser.</p>
+    </div>
+  </div>
+  <iframe
+    id="ae-view"
+    class="ae-frame ae-staging"
+    title="${forText(doc.title)}"
+    sandbox="allow-scripts allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox"
+    srcdoc=""></iframe>
+</div>
+<script src="/artifact-crypto.v1.js" integrity="${INTEGRITY["artifact-crypto.v1.js"]}"></${"script"}>
+<script src="/artifact-view.v1.js" integrity="${INTEGRITY["artifact-view.v1.js"]}"></${"script"}>`;
+}
+
+function plainStage(doc) {
+  return `<div id="ae-stage">
+  <iframe
+    id="ae-view"
+    class="ae-frame"
+    title="${forText(doc.title)}"
+    sandbox="allow-scripts allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox"
+    srcdoc="${forAttribute(withBridge(doc.html))}"></iframe>
+</div>`;
+}
+
 function shell(doc) {
   return `<!doctype html>
 <html lang="en">
@@ -300,6 +358,39 @@ function shell(doc) {
   #ae-home.on { display: inline-flex; }
   #ae-home:hover, #ae-home:focus-visible { opacity: 1; border-color: #63C9B7; }
 
+  /* What an encrypted page shows while its key is found: a small card in
+     the site's own chrome, replaced by the frame the moment it opens. */
+  #ae-lock { position: absolute; inset: 0; display: grid; place-items: center; padding: 2rem; background: #fff; }
+  @media (prefers-color-scheme: dark) { #ae-lock { background: #111; } }
+  #ae-lock[hidden] { display: none; }
+  .ae-lock-card {
+    width: 100%; max-width: 26rem;
+    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: #1a1a1a;
+  }
+  @media (prefers-color-scheme: dark) { .ae-lock-card { color: #ededed; } }
+  .ae-lock-card p { margin: 0 0 .75rem; }
+  #ae-lock-msg.bad { color: #b3261e; }
+  @media (prefers-color-scheme: dark) { #ae-lock-msg.bad { color: #f2a29b; } }
+  #ae-lock-hint { color: #5c5c5c; font-size: .92rem; }
+  #ae-lock-hint[hidden] { display: none; }
+  #ae-lock-form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 0 0 1rem; }
+  #ae-lock-form[hidden] { display: none; }
+  #ae-lock-label { flex: 1 0 100%; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: #5c5c5c; }
+  #ae-lock-field {
+    flex: 1; min-width: 0; font: inherit; color: inherit;
+    background: #fff; border: 1px solid #e4e4e4; border-radius: 6px; padding: .5rem .65rem;
+  }
+  @media (prefers-color-scheme: dark) { #ae-lock-field { background: #181818; border-color: #2c2c2c; } }
+  #ae-lock-go {
+    font: inherit; cursor: pointer; border-radius: 6px; padding: .5rem .9rem;
+    border: 1px solid #1a1a1a; background: #1a1a1a; color: #fff;
+  }
+  @media (prefers-color-scheme: dark) { #ae-lock-go { border-color: #ededed; background: #ededed; color: #111; } }
+  #ae-lock-go:disabled { opacity: .5; cursor: wait; }
+  .ae-lock-foot { border-top: 1px solid #e4e4e4; padding-top: .75rem; font-size: .82rem; color: #5c5c5c; }
+  @media (prefers-color-scheme: dark) { .ae-lock-foot { border-color: #2c2c2c; color: #a0a0a0; } }
+
   @media (max-width: 40rem) { #ae-hint { display: none; } }
   @media print { #ae-edit, #ae-home, #ae-bar { display: none !important; } }
 </style>
@@ -313,18 +404,11 @@ function shell(doc) {
   <button id="ae-save" type="button" disabled>Save</button>
   <button id="ae-done" type="button">Done</button>
 </header>
-<div id="ae-stage">
-  <iframe
-    id="ae-view"
-    class="ae-frame"
-    title="${forText(doc.title)}"
-    sandbox="allow-scripts allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox"
-    srcdoc="${forAttribute(withBridge(doc.html))}"></iframe>
-</div>
+${doc.enc === 1 ? encryptedStage(doc) : plainStage(doc)}
 <a id="ae-edit" href="?edit=1">&#9998;&nbsp;Edit</a>
 <a id="ae-home" href="/" aria-label="Back to dashboard">&#8592;&nbsp;Home</a>
 <script src="/artifact-editor.js"></${"script"}>
-<script>ArtifactEditor.boot(${JSON.stringify({ slug: doc.slug })});</${"script"}>
+<script>ArtifactEditor.boot(${JSON.stringify({ slug: doc.slug, encrypted: doc.enc === 1 })});</${"script"}>
 </body>
 </html>`;
 }

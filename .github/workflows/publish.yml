@@ -68,7 +68,7 @@ jobs:
       - name: Publish
         if: steps.check.outputs.publish == 'true'
         working-directory: cli
-        run: npm publish --access public
+        run: npm publish --access public --provenance
 
       # Keep the git history and the registry telling the same story. Only for
       # branch pushes; a tag push already has its tag.

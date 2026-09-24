@@ -33,5 +33,12 @@ export async function POST(request) {
   }
 
   await col.deleteOne({ _id: doc._id });
-  return Response.json({ status: "approved", token: doc.secret, user: doc.user });
+  return Response.json({
+    status: "approved",
+    token: doc.secret,
+    user: doc.user,
+    // The account key, sealed to the public key this CLI sent when it
+    // started; null when the approving browser had no key to give.
+    accountKeySealed: doc.accountKeySealed || null,
+  });
 }

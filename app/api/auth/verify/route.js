@@ -2,6 +2,7 @@ import { pendingSignups, users } from "@/lib/mongo";
 import { createSession, normalizeEmail } from "@/lib/auth";
 import { codeMatches } from "@/lib/device";
 import { clearAttempts, tooManyAttempts } from "@/lib/ratelimit";
+import { AUTH_VERSION } from "@/lib/keys";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,12 @@ export async function POST(request) {
       email,
       name: doc.name || "",
       passwordHash: doc.passwordHash,
+      // Everything the signup parked about encryption, carried over as it
+      // was: a v2 signup arrives here with its wrapped keys already made.
+      authVersion: doc.authVersion === AUTH_VERSION ? AUTH_VERSION : 1,
+      accountKeyByPassword: doc.accountKeyByPassword ?? null,
+      accountKeyByRecovery: doc.accountKeyByRecovery ?? null,
+      keysCreatedAt: doc.authVersion === AUTH_VERSION ? new Date() : null,
       createdAt: new Date(),
     }));
   } catch (err) {
@@ -82,7 +89,10 @@ export async function POST(request) {
   await createSession(insertedId.toString());
 
   return Response.json(
-    { user: { id: insertedId.toString(), email, name: doc.name || "" } },
+    {
+      user: { id: insertedId.toString(), email, name: doc.name || "" },
+      authVersion: doc.authVersion === AUTH_VERSION ? AUTH_VERSION : 1,
+    },
     { status: 201 }
   );
 }

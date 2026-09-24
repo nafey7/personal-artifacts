@@ -146,6 +146,7 @@ export default function TokenManager({ tokens, site }) {
           title={`Revoke “${confirming.label}”?`}
           body="Anything still publishing with this token will start failing immediately. This cannot be undone, but you can create a new token."
           confirmLabel="Revoke token"
+          pendingLabel="Revoking…"
           pending={pending}
           onCancel={() => setConfirming(null)}
           onConfirm={() => revoke(confirming)}

@@ -4,6 +4,7 @@ import { hashPassword } from "@/lib/auth";
 import { readExpiry, readPassphrase, shareSummary } from "@/lib/share";
 import { MAX_BYTES } from "@/lib/limits";
 import { TRASH_DAYS, trashSummary } from "@/lib/trash";
+import { encryptionSummary, readEncryption } from "@/lib/keys";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,19 @@ export async function GET(request, { params }) {
     "X-Robots-Tag": "noindex, nofollow",
   };
 
+  if (wantsHtml && doc.enc === 1) {
+    // There is no HTML to hand back, only ciphertext; the CLI's `get` turns
+    // it back into a page with the account key this server never had.
+    return Response.json(
+      {
+        error:
+          "this artifact is encrypted end to end — the server holds only ciphertext. Fetch it without ?format=html for the encrypted fields, or run `artifact-publish get <slug>`, which decrypts it",
+        encrypted: true,
+      },
+      { status: 409, headers }
+    );
+  }
+
   if (wantsHtml) {
     return new Response(doc.html, {
       status: 200,
@@ -83,6 +97,9 @@ export async function GET(request, { params }) {
         // A trashed artifact still reads back for its owner — that is what
         // makes "restore it or copy it out" possible — but it says so.
         ...trashSummary(doc),
+        // encrypted, and for an encrypted artifact enc, iv, artKeyWrapped
+        // and artKeyByPassphrase — the owner's blobs, useless to anyone else.
+        ...encryptionSummary(doc),
         bytes: doc.bytes ?? (doc.html ? Buffer.byteLength(doc.html, "utf8") : null),
         createdAt: new Date(doc.createdAt).toISOString(),
         updatedAt: new Date(doc.updatedAt || doc.createdAt).toISOString(),
@@ -160,14 +177,37 @@ export async function PATCH(request, { params }) {
 
   const set = {};
 
-  // The words on the page. The editor at /edit/[slug] sends the whole document
-  // back each save; the CLI's `--update` publishes over the same field through
+  // Encryption fields ride with `html` and never on their own. An encrypted
+  // artifact takes new html only as ciphertext with its iv; a plain one takes
+  // plain html, or all of enc, iv and artKeyWrapped together to become
+  // encrypted (what "Encrypt this" in the dashboard sends). Turning
+  // encryption off happens nowhere here — the CLI republishes plain through
+  // /api/upload if that is really wanted.
+  const encryption = readEncryption(body);
+  if (encryption.error) return Response.json({ error: encryption.error }, { status: 400 });
+  const enc = encryption.present && encryption.value.enc === 1 ? encryption.value : null;
+  const wasEncrypted = existing.enc === 1;
+  if (enc && !("html" in body)) {
+    return Response.json({ error: "enc, iv and artKeyWrapped go together with html" }, { status: 400 });
+  }
+  if (wasEncrypted && "html" in body && !enc) {
+    return Response.json(
+      { error: "this artifact is encrypted — send the new html as ciphertext with its iv and artKeyWrapped" },
+      { status: 400 }
+    );
+  }
+
+  // The words on the page. The editor sends the whole document back each
+  // save; the CLI's `--update` publishes over the same field through
   // /api/upload. Same cap either way, so an artifact cannot grow past what a
   // fresh upload of it would be allowed to be.
   if ("html" in body) {
     const html = typeof body.html === "string" ? body.html : "";
     if (!html.trim()) {
       return Response.json({ error: "html cannot be empty" }, { status: 400 });
+    }
+    if (enc && !/^[A-Za-z0-9_-]+$/.test(html)) {
+      return Response.json({ error: "an encrypted html must be base64url ciphertext" }, { status: 400 });
     }
     const bytes = Buffer.byteLength(html, "utf8");
     if (bytes > MAX_BYTES) {
@@ -183,6 +223,20 @@ export async function PATCH(request, { params }) {
     }
     set.html = html;
     set.bytes = bytes;
+    if (enc) {
+      set.enc = 1;
+      set.iv = enc.iv;
+      set.artKeyWrapped = enc.artKeyWrapped;
+    }
+  }
+
+  // The passphrase wrapping of the artifact key, set by the share sheet
+  // beside the passphrase itself. Only an encrypted artifact has one.
+  if (encryption.present && encryption.value.artKeyByPassphrase !== undefined) {
+    if (!wasEncrypted && !enc) {
+      return Response.json({ error: "artKeyByPassphrase needs an encrypted artifact" }, { status: 400 });
+    }
+    set.artKeyByPassphrase = encryption.value.artKeyByPassphrase;
   }
 
   if ("title" in body) {
@@ -227,6 +281,8 @@ export async function PATCH(request, { params }) {
   if (pass.present) {
     if (pass.error) return Response.json({ error: pass.error }, { status: 400 });
     set.sharePassHash = pass.value ? await hashPassword(pass.value) : null;
+    // No passphrase, nothing for one to unwrap.
+    if (!pass.value) set.artKeyByPassphrase = null;
   }
 
   const restricting = Boolean(set.shareExpiresAt || set.sharePassHash);
@@ -244,6 +300,7 @@ export async function PATCH(request, { params }) {
     }
     set.shareExpiresAt = null;
     set.sharePassHash = null;
+    set.artKeyByPassphrase = null;
   }
 
   if (Object.keys(set).length === 0) {
@@ -264,6 +321,7 @@ export async function PATCH(request, { params }) {
       title: result.title,
       projectId: result.projectId ?? null,
       ...shareSummary(result),
+      ...encryptionSummary(result),
     },
   });
 }

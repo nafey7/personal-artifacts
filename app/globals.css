@@ -1458,3 +1458,130 @@ body {
   .lp-hero-copy > *, .lp-hero-demo { animation: none; }
   .lp-js [data-reveal] { opacity: 1; transform: none; transition: none; }
 }
+
+/* ---------- encryption ---------- */
+/* The twelve words, numbered, in a grid that reads down each column the way
+   a person copies them onto paper. */
+.phrase {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .35rem .6rem;
+  padding: .9rem 1rem;
+  background: var(--ground);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  counter-reset: none;
+}
+.phrase li {
+  display: flex; align-items: baseline; gap: .45rem;
+  font-family: var(--mono); font-size: .86rem;
+  min-width: 0;
+}
+.phrase-n { color: var(--ink-faint); font-size: .66rem; width: 1.2rem; text-align: right; flex: none; }
+.phrase-w { color: var(--accent); overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 24rem) { .phrase { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.phrasefield {
+  background: var(--ground-2);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: .5rem .6rem;
+  font-family: var(--mono); font-size: .86rem;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+  color: inherit;
+}
+.phrasefield:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99,201,183,.16);
+}
+.phrasefield::placeholder { color: var(--ink-faint); font-family: var(--sans); }
+
+.authsubmit.is-danger { color: var(--danger); background: var(--danger-bg); }
+.authsubmit.is-danger:hover:not(:disabled) { border-color: var(--danger); }
+
+/* The lock on an encrypted row: part of the title, not a control. */
+.rowenc {
+  display: inline-grid; place-items: center;
+  width: 1.15rem; height: 1.15rem;
+  margin-right: .45rem;
+  border-radius: 5px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  vertical-align: -3px;
+  flex: none;
+}
+.rowmain { display: flex; align-items: center; min-width: 0; }
+
+/* "Encrypt this" on a plain row: shown on hover like edit and delete. */
+.rowlock {
+  display: grid; place-items: center;
+  width: 1.75rem; height: 1.75rem;
+  border: none; border-radius: 6px;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .14s ease, color .14s ease, background .14s ease;
+}
+.row:hover .rowlock, .rowlock:focus-visible { opacity: 1; }
+.rowlock:hover:not(:disabled) { color: var(--accent); background: var(--accent-bg); }
+.rowlock:disabled { cursor: not-allowed; }
+
+.sharewarn {
+  font-size: .82rem;
+  color: var(--ink-soft);
+  background: var(--accent-bg);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  padding: .5rem .65rem;
+  margin-top: .8rem;
+}
+.sharewarn.is-bad { color: var(--danger); background: var(--danger-bg); }
+
+.unlockfield { margin-top: 1.1rem; }
+.unlockfield input { width: 100%; }
+
+.recovery { margin-bottom: 2.2rem; display: flex; flex-direction: column; gap: .8rem; max-width: 46rem; }
+.recovery .settingslede { margin-bottom: 0; }
+.recovery .authcard { max-width: 30rem; }
+.recoveryform { max-width: 34rem; }
+.recoveryform .btn { flex: none; }
+
+/* The CLI's key fingerprint on the approval page: read it against the
+   terminal before approving. */
+.devicefacts .fingerprint { color: var(--accent); }
+
+/* home: encryption, exactly */
+.lp-e2e-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 2rem;
+  max-width: var(--lp-w); margin: 0 auto;
+  padding: 0 var(--lp-pad);
+}
+.lp-e2e-grid > div > p { color: var(--ink-soft); margin-bottom: 1rem; max-width: 34rem; }
+.lp-e2e-grid code { font-family: var(--mono); font-size: .86em; color: var(--ink); }
+.lp-e2e-lists { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.lp-e2e-lists > div {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+}
+.lp-e2e-lists h3 {
+  font-family: var(--mono); font-size: .68rem; font-weight: 600;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: .6rem;
+}
+.lp-e2e-lists > div:last-child h3 { color: var(--ink-faint); }
+.lp-e2e-lists li { font-size: .88rem; color: var(--ink-soft); padding: .25rem 0; border-top: 1px solid var(--rule-soft); }
+.lp-e2e-lists li:first-child { border-top: 0; }
+@media (max-width: 52rem) {
+  .lp-e2e-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 34rem) {
+  .lp-e2e-lists { grid-template-columns: 1fr; }
+}

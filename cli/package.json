@@ -1,7 +1,7 @@
 {
   "name": "personal-artifact",
   "version": "1.6.2",
-  "description": "Publish self-contained HTML artifacts to your own private site from any coding agent.",
+  "description": "Publish self-contained HTML artifacts to your own private site from any coding agent, encrypted end to end if you choose.",
   "type": "module",
   "bin": {
     "personal-artifact": "./init.js",
@@ -12,12 +12,14 @@
     "publish.js",
     "skills.js",
     "postinstall.js",
+    "crypto.js",
+    "wordlist.js",
     "skill/SKILL.md",
     "README.md",
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "license": "MIT",
   "keywords": [
@@ -30,7 +32,9 @@
     "cursor",
     "agent-skills",
     "skill",
-    "static-site"
+    "static-site",
+    "encryption",
+    "end-to-end"
   ],
   "homepage": "https://github.com/nafey7/personal-artifacts#readme",
   "repository": {
@@ -42,6 +46,7 @@
     "url": "https://github.com/nafey7/personal-artifacts/issues"
   },
   "scripts": {
-    "postinstall": "node ./postinstall.js"
+    "postinstall": "node ./postinstall.js",
+    "test": "node --test \"test/*.test.js\""
   }
 }

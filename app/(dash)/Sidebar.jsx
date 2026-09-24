@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Confirm from "./Confirm";
+import { forget } from "@/lib/account-key";
 
 function Icon({ name }) {
   const props = {
@@ -69,6 +70,9 @@ export default function Sidebar({ projects, total, trash, user }) {
   async function signOut() {
     setSigningOut(true);
     try {
+      // The account key leaves with the session: a shared machine must not
+      // keep the means to open encrypted artifacts after sign-out.
+      await forget();
       await fetch("/api/auth/signout", { method: "POST" });
       router.replace("/signin");
       router.refresh();

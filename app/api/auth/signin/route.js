@@ -1,9 +1,22 @@
 import { users } from "@/lib/mongo";
-import { createSession, normalizeEmail, verifyPassword } from "@/lib/auth";
+import { createSession, normalizeEmail, publicUser, verifyPassword } from "@/lib/auth";
 import { clearAttempts, clientIp, tooManyAttempts } from "@/lib/ratelimit";
+import { AUTH_VERSION, keySummary, readAuthHash } from "@/lib/keys";
 
 export const dynamic = "force-dynamic";
 
+// A v2 account signs in with `authHash`, which the browser derives from the
+// password and the email; the password itself never arrives. The scrypt check
+// is exactly what it was — it is just hashing a different string. The reply
+// carries the account key wrapped under the password, so the browser can
+// unlock it locally, and says which version the account is.
+//
+// A v1 account (made before encryption) still signs in with `password`. A
+// browser that sent `authHash` to one gets `legacy: true` back with the 401,
+// which is its cue to run the upgrade with the password it already holds.
+// That flag does admit a legacy account exists at that address; it is gone
+// the moment the last v1 account upgrades, and the plain-password path with
+// it.
 export async function POST(request) {
   let body;
   try {
@@ -14,7 +27,8 @@ export async function POST(request) {
 
   const email = normalizeEmail(body.email);
   const password = typeof body.password === "string" ? body.password : "";
-  if (!email || !password) {
+  const authHash = readAuthHash(body.authHash);
+  if (!email || (!password && !authHash)) {
     return Response.json({ error: "email and password are required" }, { status: 400 });
   }
 
@@ -32,15 +46,26 @@ export async function POST(request) {
   }
 
   const doc = await (await users()).findOne({ email });
+  const v2 = doc?.authVersion === AUTH_VERSION;
+  // A v2 account only ever checks authHash; the plain password is not
+  // something it can verify any more, by design.
+  const presented = v2 ? authHash : password;
   // Same message either way, so this can't be used to enumerate accounts.
-  const ok = doc ? await verifyPassword(password, doc.passwordHash) : false;
+  const ok = doc && presented ? await verifyPassword(presented, doc.passwordHash) : false;
   if (!ok) {
-    return Response.json({ error: "wrong email or password" }, { status: 401 });
+    const legacy = Boolean(doc) && !v2 && Boolean(authHash) && !password;
+    return Response.json(
+      { error: "wrong email or password", ...(legacy ? { legacy: true } : {}) },
+      { status: 401 }
+    );
   }
 
   await clearAttempts(`signin:email:${email}`);
   await createSession(doc._id.toString());
+  const keys = keySummary(doc);
   return Response.json({
-    user: { id: doc._id.toString(), email: doc.email, name: doc.name || "" },
+    user: publicUser(doc),
+    authVersion: keys.authVersion,
+    accountKeyByPassword: keys.accountKeyByPassword,
   });
 }

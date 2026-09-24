@@ -5,3 +5,4 @@ atlas-credentials.env
 .vercel
 .env*
 .playwright-mcp/
+plans/

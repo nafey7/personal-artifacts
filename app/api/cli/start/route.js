@@ -1,5 +1,6 @@
 import { pendingAuth } from "@/lib/mongo";
 import { clientIp, tooManyAttempts } from "@/lib/ratelimit";
+import { ecdh } from "@/cli/crypto";
 import {
   CODE_TTL_SECONDS,
   cleanDeviceName,
@@ -25,6 +26,12 @@ export async function POST(request) {
     // device name is optional
   }
 
+  // The CLI's ephemeral ECDH public key, if it sent one. The browser that
+  // approves the machine seals the account key to it, and this row carries
+  // the sealed blob back to the poll. An older CLI sends none and gets a
+  // token without a key, as before.
+  const cliPublicKey = ecdh.isPublicKey(body.cliPublicKey) ? body.cliPublicKey : null;
+
   const userCode = makeUserCode();
   const deviceCode = makeDeviceCode();
   const now = new Date();
@@ -34,6 +41,7 @@ export async function POST(request) {
     userCode,
     deviceCodeHash: hashCode(deviceCode),
     device: cleanDeviceName(body.device),
+    cliPublicKey,
     status: "pending",
     createdAt: now,
     expiresAt: new Date(now.getTime() + CODE_TTL_SECONDS * 1000),
@@ -45,6 +53,7 @@ export async function POST(request) {
       userCode,
       deviceCode,
       verifyUrl: `${origin}/cli/auth?code=${userCode}`,
+      fingerprint: cliPublicKey ? await ecdh.fingerprint(cliPublicKey) : null,
       expiresIn: CODE_TTL_SECONDS,
       pollInterval: 2,
     },

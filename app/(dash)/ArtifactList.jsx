@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import * as crypto from "@/cli/crypto";
+import { requestAccountKey } from "@/lib/account-key";
 import Confirm from "./Confirm";
 import ShareDialog from "./ShareDialog";
 
@@ -15,6 +17,15 @@ function timeLeft(iso) {
   const hours = Math.ceil(minutes / 60);
   if (hours < 48) return `${hours}h`;
   return `${Math.ceil(hours / 24)}d`;
+}
+
+function LockIcon({ size = 12 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  );
 }
 
 function shareTitle(d) {
@@ -33,6 +44,7 @@ export default function ArtifactList({ items, projects, showProject = true }) {
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(null);
   const [sharing, setSharing] = useState(null);
+  const [encrypting, setEncrypting] = useState(null); // row waiting for "Encrypt this" to be confirmed
 
   const names = useMemo(
     () => new Map(projects.map((p) => [p.id, p.name])),
@@ -74,6 +86,78 @@ export default function ArtifactList({ items, projects, showProject = true }) {
     return mutate(id, { method: "PATCH", body: JSON.stringify(body) });
   }
 
+  // Turns a plain artifact into an encrypted one, here in the browser: a new
+  // key for the page, the page sealed under it, the key sealed under the
+  // account key, and only those sent. One way — the CLI can `get` it and
+  // publish it back plain if that is ever wanted. A passphrase the link had
+  // cannot be carried over (the site holds only its hash), so it is cleared
+  // and the share sheet asks for it again.
+  async function encrypt(d) {
+    setPending(d.id);
+    setError("");
+    try {
+      const account = await requestAccountKey();
+      if (!account) {
+        setError("Unlock your encryption key first — nothing was changed.");
+        return false;
+      }
+      const res = await fetch(`/api/artifacts/${d.id}`, { credentials: "same-origin" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || `request failed (${res.status})`);
+        return false;
+      }
+      const artKey = await crypto.newKey();
+      const [blob, artKeyWrapped] = await Promise.all([
+        crypto.encrypt(data.artifact.html, artKey),
+        crypto.wrap(artKey, account),
+      ]);
+      const body = { enc: 1, html: blob.ct, iv: blob.iv, artKeyWrapped };
+      if (d.hasPassphrase) body.passphrase = null;
+      return await patch(d.id, body);
+    } catch (err) {
+      setError(err?.message ? `could not encrypt — ${err.message}` : "could not encrypt");
+      return false;
+    } finally {
+      setPending(null);
+    }
+  }
+
+  // A new key for an artifact that already has one. Whoever holds an old link
+  // holds the old key, so this is how a keyed link is revoked.
+  async function reencrypt(d, oldKey) {
+    setPending(d.id);
+    setError("");
+    try {
+      const account = await requestAccountKey();
+      if (!account) {
+        setError("Unlock your encryption key first — nothing was changed.");
+        return false;
+      }
+      const res = await fetch(`/api/artifacts/${d.id}`, { credentials: "same-origin" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || `request failed (${res.status})`);
+        return false;
+      }
+      const a = data.artifact;
+      const html = await crypto.decrypt({ v: 1, iv: a.iv, ct: a.html }, oldKey);
+      const artKey = await crypto.newKey();
+      const [blob, artKeyWrapped] = await Promise.all([
+        crypto.encrypt(html, artKey),
+        crypto.wrap(artKey, account),
+      ]);
+      const body = { enc: 1, html: blob.ct, iv: blob.iv, artKeyWrapped, artKeyByPassphrase: null };
+      if (d.hasPassphrase) body.passphrase = null;
+      return await patch(d.id, body);
+    } catch (err) {
+      setError(err?.message ? `could not re-encrypt — ${err.message}` : "could not re-encrypt");
+      return false;
+    } finally {
+      setPending(null);
+    }
+  }
+
   return (
     <section>
       <div className="listhead">
@@ -108,6 +192,11 @@ export default function ArtifactList({ items, projects, showProject = true }) {
           {visible.map((d) => (
             <div className={`row${pending === d.id ? " is-pending" : ""}`} key={d.id}>
               <a className="rowmain" href={`/a/${d.slug}`}>
+                {d.encrypted && (
+                  <span className="rowenc" title="Encrypted end to end: the site stores only ciphertext">
+                    <LockIcon />
+                  </span>
+                )}
                 <span className="title">{d.title}</span>
               </a>
 
@@ -146,6 +235,19 @@ export default function ArtifactList({ items, projects, showProject = true }) {
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
+              )}
+
+              {!d.encrypted && (
+                <button
+                  type="button"
+                  className="rowlock"
+                  disabled={pending === d.id}
+                  onClick={() => { setEncrypting(d); setError(""); }}
+                  aria-label={`Encrypt ${d.title}`}
+                  title="Encrypt this artifact end to end"
+                >
+                  <LockIcon size={14} />
+                </button>
               )}
 
               <a
@@ -190,6 +292,29 @@ export default function ArtifactList({ items, projects, showProject = true }) {
           onStop={async () => {
             const ok = await patch(sharing.id, { visibility: "private" });
             if (ok) setSharing(null);
+          }}
+          onReencrypt={async (oldKey) => {
+            const ok = await reencrypt(sharing, oldKey);
+            if (ok) setSharing(null);
+          }}
+        />
+      )}
+
+      {encrypting && (
+        <Confirm
+          title={`Encrypt “${encrypting.title}”?`}
+          body={`The page is encrypted here in your browser with a key of its own, and only ciphertext is kept on the site — nobody who runs it can read the page. You open it as usual; sharing it hands out a link that carries the key.${
+            encrypting.hasPassphrase
+              ? " The passphrase on its link cannot be carried over and is removed; set it again from the share sheet."
+              : ""
+          } This cannot be undone from the dashboard.`}
+          confirmLabel="Encrypt"
+          pendingLabel="Encrypting…"
+          pending={pending === encrypting.id}
+          onCancel={() => setEncrypting(null)}
+          onConfirm={async () => {
+            const ok = await encrypt(encrypting);
+            if (ok) setEncrypting(null);
           }}
         />
       )}
