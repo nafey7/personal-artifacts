@@ -80,17 +80,41 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // browser, up to ATTEMPTS times.
 const ATTEMPTS = 3; // three ten-minute windows
 
-async function requestApproval(site, { noBrowser, again }) {
-  const started = await fetch(`${site}/api/cli/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ device: deviceName() }),
-  });
-  if (!started.ok) {
-    const detail = await started.text();
-    throw new Error(`could not start sign-in (${started.status}): ${detail}`);
+// The site runs on a free host that sleeps when nobody is using it, and its
+// database can be just as slow to wake. The first request is what wakes them,
+// so it is the one most likely to fail — and it is the only one that has to
+// succeed before we send the person to the browser. Give it a few tries with a
+// short pause between, so a slow wake-up never shows up as an error.
+const START_TRIES = 3;
+const START_PAUSE_MS = 3000;
+
+async function startSignIn(site) {
+  let lastError;
+  for (let i = 0; i < START_TRIES; i++) {
+    if (i > 0) await wait(START_PAUSE_MS);
+    let res;
+    try {
+      res = await fetch(`${site}/api/cli/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ device: deviceName() }),
+      });
+      if (res.ok) return await res.json();
+    } catch (err) {
+      lastError = err; // no connection, or a reply cut off half way
+      continue;
+    }
+    const detail = await res.text().catch(() => "");
+    lastError = new Error(`could not start sign-in (${res.status}): ${detail}`);
+    // The site answered and said no (rate limit, bad request). Asking again
+    // will get the same answer, so stop here and show it.
+    if (res.status < 500) throw lastError;
   }
-  const { userCode, deviceCode, verifyUrl, expiresIn, pollInterval } = await started.json();
+  throw new Error(`${lastError?.message || "could not reach the site"} — is ${site} up?`);
+}
+
+async function requestApproval(site, { noBrowser, again }) {
+  const { userCode, deviceCode, verifyUrl, expiresIn, pollInterval } = await startSignIn(site);
 
   const opened = noBrowser ? false : openBrowser(verifyUrl);
   if (again) {
@@ -105,14 +129,22 @@ async function requestApproval(site, { noBrowser, again }) {
   while (Date.now() < deadline) {
     await wait(pollInterval * 1000);
 
-    const res = await fetch(`${site}/api/cli/poll`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceCode }),
-    });
-    if (!res.ok) continue; // a blip shouldn't end the sign-in
+    // The browser tab is open by now, so nothing short of an answer from the
+    // site may end this loop: a bad status, a dropped connection, or a
+    // half-received reply are all treated as "ask again".
+    let data;
+    try {
+      const res = await fetch(`${site}/api/cli/poll`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceCode }),
+      });
+      if (!res.ok) continue;
+      data = await res.json();
+    } catch {
+      continue;
+    }
 
-    const data = await res.json();
     if (data.status === "approved") {
       console.log("done.");
       return { token: data.token, user: data.user };
