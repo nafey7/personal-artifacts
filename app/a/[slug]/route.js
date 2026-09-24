@@ -285,8 +285,23 @@ function shell(doc) {
   #ae-edit.on { display: inline-flex; }
   #ae-edit:hover, #ae-edit:focus-visible { opacity: 1; border-color: #63C9B7; }
 
+  /* The way back to the dashboard. Same pill as the edit button, and shown
+     under the same rule: only once the reader turns out to own the page. */
+  #ae-home {
+    position: fixed; left: 1rem; top: 1rem; z-index: 2147483647;
+    display: none; align-items: center; gap: .35rem;
+    padding: .5rem .85rem; border-radius: 999px;
+    font: 500 13px/1 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: #E9EFEC; background: #141F1D; border: 1px solid #24322F;
+    text-decoration: none; opacity: .62;
+    box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 12px 28px -14px rgba(0,0,0,.75);
+    transition: opacity .15s ease, border-color .15s ease;
+  }
+  #ae-home.on { display: inline-flex; }
+  #ae-home:hover, #ae-home:focus-visible { opacity: 1; border-color: #63C9B7; }
+
   @media (max-width: 40rem) { #ae-hint { display: none; } }
-  @media print { #ae-edit, #ae-bar { display: none !important; } }
+  @media print { #ae-edit, #ae-home, #ae-bar { display: none !important; } }
 </style>
 </head>
 <body>
@@ -307,6 +322,7 @@ function shell(doc) {
     srcdoc="${forAttribute(withBridge(doc.html))}"></iframe>
 </div>
 <a id="ae-edit" href="?edit=1">&#9998;&nbsp;Edit</a>
+<a id="ae-home" href="/" aria-label="Back to dashboard">&#8592;&nbsp;Home</a>
 <script src="/artifact-editor.js"></${"script"}>
 <script>ArtifactEditor.boot(${JSON.stringify({ slug: doc.slug })});</${"script"}>
 </body>

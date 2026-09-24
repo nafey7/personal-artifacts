@@ -134,6 +134,7 @@
     var stage = document.getElementById("ae-stage");
     var bar = document.getElementById("ae-bar");
     var openButton = document.getElementById("ae-edit");
+    var homeButton = document.getElementById("ae-home");
     var saveButton = document.getElementById("ae-save");
     var doneButton = document.getElementById("ae-done");
     var stateEl = document.getElementById("ae-state");
@@ -239,6 +240,7 @@
       // height it will keep and settles to a scroll it will stay at.
       bar.hidden = false;
       openButton.className = "";
+      homeButton.className = "";
       rest();
 
       edit = document.createElement("iframe");
@@ -318,6 +320,7 @@
 
       bar.hidden = true;
       openButton.className = "on";
+      homeButton.className = "on";
       rest();
       mark(false);
     }
@@ -490,6 +493,7 @@
       .then(function (res) {
         if (!res.ok) return;
         openButton.className = "on";
+        homeButton.className = "on";
         // Arriving straight into the editor — the pencil in the dashboard.
         if (/[?&]edit=1(&|$)/.test(location.search)) open();
       })
