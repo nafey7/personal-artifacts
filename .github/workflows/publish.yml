@@ -65,10 +65,12 @@ jobs:
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # Add --provenance here once the repository is public: npm refuses to
+      # sign a provenance statement for a private source repository (E422).
       - name: Publish
         if: steps.check.outputs.publish == 'true'
         working-directory: cli
-        run: npm publish --access public --provenance
+        run: npm publish --access public
 
       # Keep the git history and the registry telling the same story. Only for
       # branch pushes; a tag push already has its tag.

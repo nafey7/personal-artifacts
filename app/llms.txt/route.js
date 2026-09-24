@@ -43,7 +43,7 @@ stored wrapped under an account key the site never holds).
 Not encrypted: the owner's email, the title, the project, the size, dates,
 visibility, and which addresses opened which link. Plain artifacts stay plain.
 Limit: the decrypting script is served by the site, pinned by an integrity
-hash and generated from the open-source CLI package (npm provenance). The CLI
+hash and generated from the CLI package on npm, where it can be read. The CLI
 itself has no such limit.
 Recovery: a twelve-word phrase shown once. Lose it and the password and the
 encrypted artifacts are gone; the site cannot help.

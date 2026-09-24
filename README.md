@@ -225,9 +225,10 @@ uninstall`. It leaves the token on the server; revoke that at `/settings`.
 ## Releasing the CLI
 
 Publishing runs from GitHub Actions over OIDC trusted publishing — no npm token
-lives in this repo, and no 2FA prompt has to be answered. Every release is
-published with `--provenance`, so npm shows which commit and workflow built
-it, and `npm audit signatures` can check a downloaded copy against that.
+lives in this repo, and no 2FA prompt has to be answered. Provenance signing
+(`npm publish --provenance`, which lets `npm audit signatures` tie a release to
+the commit that built it) needs a public source repository; add the flag in
+`.github/workflows/publish.yml` once the repo is public.
 
 ```
 cd cli
@@ -272,6 +273,6 @@ page. What is not: your email, the title, the project, the size, dates,
 visibility, and which addresses opened which link. How to check it: the
 network tab shows ciphertext and wrapped keys leaving and arriving, and
 nothing after the `#` of a link; the scripts that decrypt are pinned by hash
-in `lib/integrity.js` and generated from `cli/crypto.js`, which npm publishes
-with provenance. [docs/encryption.md](docs/encryption.md) has the full
+in `lib/integrity.js` and generated from `cli/crypto.js`, which is published
+on npm where it can be read. [docs/encryption.md](docs/encryption.md) has the full
 account, including the one limit no browser-based design removes.

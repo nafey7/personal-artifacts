@@ -23,8 +23,8 @@ trash keep working. Plain artifacts — everything published without
 **The one limit no browser design removes:** the script that decrypts in the
 browser is served by this site. An operator who wanted to could ship a copy
 that posts keys home. This is narrowed, not removed: the script is generated
-from `cli/crypto.js` in the open-source `personal-artifact` package, which
-npm publishes with provenance; the viewer loads it with an `integrity=` hash
+from `cli/crypto.js` in the `personal-artifact` package on npm, where it can
+be read before it runs; the viewer loads it with an `integrity=` hash
 kept in `lib/integrity.js` in the public repository; and `npm test` fails if
 the served copy differs from the source. The CLI has no such limit — its
 code is on npm to read before it runs.
@@ -43,8 +43,9 @@ code is on npm to read before it runs.
   `node scripts/sync-crypto.mjs` produces from `cli/crypto.js` and
   `cli/wordlist.js`, and its SHA-384 is the one in `lib/integrity.js` and in
   the `integrity=` attribute the viewer page carries.
-- **npm.** `npm view personal-artifact` shows the provenance of each release;
-  `npm audit signatures` checks an installed copy against it.
+- **npm.** The installed `crypto.js` is the file this repository holds. Once
+  the repository is public, the publish workflow can add `--provenance` so
+  `npm audit signatures` ties each release to the commit that built it.
 
 ## Keys, and who holds them
 
